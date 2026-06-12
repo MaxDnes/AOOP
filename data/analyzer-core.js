@@ -1220,14 +1220,14 @@
       const ref = index.interfaces[strategyIface];
       const impls = implsByIface[strategyIface];
       push({
-        principle: "OCP", title: "Open/Closed via the Strategy pattern",
+        principle: "OCP", title: "Open/Closed via the Strategy pattern", pattern: "Strategy",
         file: ref.file, line: ref.line, excerpt: excerptAt(ctxByName(ctxs, ref.file), ref.line),
         message: strategyIface + " has " + impls.length + " implementations (" + impls.join(", ") +
           ") — new behaviour is added by writing a new class, not by editing existing code.",
         evidence: strategyIface + " is implemented by " + impls.join(", ") + ", interchangeable strategies behind one abstraction",
         paragraph: "Open/Closed is present through the Strategy pattern: the interface " + strategyIface +
           " has " + impls.length + " interchangeable implementations — " + impls.join(", ") + " (" + ref.file + ":" + ref.line +
-          "). Purpose: software should be open for extension but closed for modification, so new variants arrive as new classes plugged into an existing abstraction. Here a new dietary or behaviour rule is added by writing another " +
+          "). Purpose: software should be open for extension but closed for modification, so new variants arrive as new classes plugged into an existing abstraction. Here a new variant of the behaviour is added by writing another " +
           strategyIface + " implementation, with no edit to the classes that consume them.",
       });
     }
@@ -1244,7 +1244,7 @@
     });
     if (repoFound) {
       push({
-        principle: "DIP", title: "Repository pattern (storage behind an interface)",
+        principle: "DIP", title: "Repository pattern (storage behind an interface)", pattern: "Repository",
         file: repoFound.ctx.name, line: repoFound.line, excerpt: excerptAt(repoFound.ctx, repoFound.line),
         message: repoFound.name + " implements " + repoFound.iface + " — data access is hidden behind an abstraction.",
         evidence: repoFound.name + " encapsulates data access behind the " + repoFound.iface + " interface",
@@ -1267,7 +1267,7 @@
     });
     if (obs) {
       push({
-        principle: "OCP", title: "Observer pattern (events / subscriptions)",
+        principle: "OCP", title: "Observer pattern (events / subscriptions)", pattern: "Observer",
         file: obs.ctx.name, line: obs.line, excerpt: excerptAt(obs.ctx, obs.line),
         message: obs.cls + " exposes an event/subscription seam — observers attach without the subject knowing them.",
         evidence: obs.cls + " publishes an event so observers can subscribe without the subject depending on them",
@@ -1297,6 +1297,92 @@
         evidence: "fields are private and state is exposed through properties (often with private setters)",
         paragraph: "Encapsulation is present: the model classes keep their fields private and expose state through properties, frequently with private or get-only setters (" +
           encRef.ctx.name + ":" + encRef.line + "). Purpose: an object should control its own state so it can enforce invariants, validate assignments and change its representation without breaking callers. Here external code reads through properties and cannot put an object into an invalid state by writing a raw field.",
+      });
+    }
+
+    /* ---- Singleton pattern (spec 18 §A.1): a class with a private constructor
+       AND a static Instance accessor (or a Lazy<Self> field) returning the type.
+       Names the variant (lazy vs eager). A plain static helper class — all
+       statics, no private instance ctor exposing a single shared instance — must
+       NOT trip this, so we require BOTH the private ctor and the self-typed
+       singleton accessor. ---- */
+    let singleton = null;
+    ctxs.forEach((ctx) => {
+      ctx.classes.forEach((cls) => {
+        if (singleton || cls.kind !== "class") return;
+        const body = ctx.stripped.slice(cls.open, cls.close + 1);
+        /* a private (or protected) parameterless-or-any constructor for this type */
+        const privCtorRe = new RegExp("\\b(?:private|protected)\\s+" + cls.name + "\\s*\\(");
+        if (!privCtorRe.test(body)) return;
+        /* a Lazy<ThisType> field => lazy variant */
+        const lazyRe = new RegExp("\\bLazy\\s*<\\s*" + cls.name + "\\s*>");
+        /* a static member typed as / returning this type (Instance/Current) =>
+           eager (or property-backed) variant */
+        const staticSelfRe = new RegExp("\\bstatic\\b[^;{}\\n]*\\b" + cls.name + "\\b[^;{}\\n]*\\b(Instance|Current|Default)\\b");
+        const instanceNamedRe = new RegExp("\\bstatic\\b[^;{}\\n]*\\b(Instance|Current|Default)\\b");
+        const isLazy = lazyRe.test(body);
+        const hasStaticSelf = staticSelfRe.test(body) || (instanceNamedRe.test(body) && new RegExp("\\bnew\\s+" + cls.name + "\\s*\\(").test(body));
+        if (!isLazy && !hasStaticSelf) return;
+        const variant = isLazy ? "lazy" : "eager";
+        const mm = isLazy ? lazyRe.exec(body) : (staticSelfRe.exec(body) || instanceNamedRe.exec(body));
+        const line = lineOfIndex(ctx.stripped, cls.open + (mm ? mm.index : 0));
+        singleton = { ctx, cls: cls.name, line, variant };
+      });
+    });
+    if (singleton) {
+      const v = singleton.variant;
+      push({
+        principle: "SRP", title: "Singleton pattern (single shared instance)", pattern: "Singleton",
+        file: singleton.ctx.name, line: singleton.line, excerpt: excerptAt(singleton.ctx, singleton.line),
+        message: singleton.cls + " is a " + v + " Singleton: a private constructor plus a static accessor hands out one shared instance.",
+        evidence: singleton.cls + " has a private constructor and a static accessor that returns the single shared instance (" + v + " initialisation)",
+        paragraph: "The Singleton pattern is present (" + v + " variant): " + singleton.cls +
+          " has a private constructor so no other code can construct it, and exposes one shared instance through a static accessor (" +
+          singleton.ctx.name + ":" + singleton.line + "). Purpose: it guarantees exactly one instance of a type for the whole program and gives a single global point of access to it. " +
+          (v === "lazy"
+            ? "Here the instance is created lazily through a Lazy<" + singleton.cls + "> field, so it is built once, on first use, and is thread-safe by default."
+            : "Here the instance is held in a static field/property, created once and reused everywhere.") +
+          " Worth noting in the answer: a Singleton is global shared state, so it trades testability and explicit dependencies for that single-instance guarantee.",
+      });
+    }
+
+    /* ---- Command pattern (spec 18 §A.2): a class that IMPLEMENTS commands —
+       [RelayCommand] methods, or members typed ICommand/IRelayCommand/
+       RelayCommand/AsyncRelayCommand. A class that merely BINDS to someone
+       else's command from AXAML is not implementing the pattern, so we require
+       an actual command declaration in the C# (an attribute or a typed member),
+       never an AXAML binding. ---- */
+    let command = null;
+    ctxs.forEach((ctx) => {
+      ctx.classes.forEach((cls) => {
+        if (command || (cls.kind !== "class" && cls.kind !== "record")) return;
+        const body = ctx.stripped.slice(cls.open, cls.close + 1);
+        /* [RelayCommand] attribute on a method => the toolkit generates the ICommand */
+        const attrRe = /\[\s*RelayCommand\b/;
+        /* a member declared as one of the command types (field, property or param):
+           'ICommand Foo', 'IRelayCommand Bar', 'RelayCommand Baz', 'AsyncRelayCommand Qux' */
+        const memberRe = /\b(ICommand|IRelayCommand(?:<[^<>]*>)?|RelayCommand(?:<[^<>]*>)?|AsyncRelayCommand(?:<[^<>]*>)?)\s+[A-Za-z_]\w*/;
+        const hasAttr = attrRe.test(body);
+        const hasMember = memberRe.test(body);
+        if (!hasAttr && !hasMember) return;
+        const mm = hasAttr ? attrRe.exec(body) : memberRe.exec(body);
+        const line = lineOfIndex(ctx.stripped, cls.open + mm.index);
+        command = { ctx, cls: cls.name, line, viaAttr: hasAttr };
+      });
+    });
+    if (command) {
+      push({
+        principle: "OCP", title: "Command pattern (action encapsulated as an object)", pattern: "Command",
+        file: command.ctx.name, line: command.line, excerpt: excerptAt(command.ctx, command.line),
+        message: command.cls + " implements the Command pattern" +
+          (command.viaAttr ? " via a [RelayCommand] method" : " via an ICommand/RelayCommand member") +
+          ": an action the UI can bind to and invoke.",
+        evidence: command.cls + (command.viaAttr ? " uses [RelayCommand] so the toolkit generates an ICommand the View binds to" : " exposes an ICommand/RelayCommand member the View binds to"),
+        paragraph: "The Command pattern is present: " + command.cls + " encapsulates an action as an object" +
+          (command.viaAttr
+            ? " using CommunityToolkit.Mvvm's [RelayCommand], which generates an ICommand property the View binds to ("
+            : " by exposing an ICommand/RelayCommand member the View binds to (") +
+          command.ctx.name + ":" + command.line + "). Purpose: the Command pattern turns a request into a first-class object, with its own execute (and optional can-execute) logic, so the caller (here the button/menu in the View) is decoupled from what actually runs. The View binds to the command and invokes it without knowing the method behind it, which is exactly how MVVM keeps the View free of logic.",
       });
     }
 
@@ -1446,14 +1532,18 @@
     POLY: "Purpose: clients call an abstraction and the runtime dispatches to the right implementation, replacing manual type checks with virtual/interface dispatch.",
   };
 
-  /* the three explicit draft modes the UI offers (spec 08). "full" is the
-     default and reproduces the original presence-then-violations rubric draft. */
-  const MODES = ["full", "violations", "implementations"];
+  /* the explicit draft modes the UI offers. "full" is the default and reproduces
+     the original presence-then-violations August-rubric draft (spec 08). "june"
+     (spec 18) assembles the June P1 paper's 1.1-1.5 structure instead; for the
+     findings list / coverage / select-all it behaves like full (it draws on every
+     finding), only the DRAFT assembly differs. */
+  const MODES = ["full", "violations", "implementations", "june"];
   function normalizeMode(mode) { return MODES.indexOf(mode) !== -1 ? mode : "full"; }
 
   /* filter a findings list down to the kinds a given mode renders. The UI uses
      the same predicate for the findings list, the coverage strip and select-all,
-     so the draft and the on-screen findings always agree. */
+     so the draft and the on-screen findings always agree. June draws on
+     everything, so it filters like full. */
   function filterByMode(findings, mode) {
     const m = normalizeMode(mode);
     const list = Array.isArray(findings) ? findings : [];
@@ -1465,6 +1555,9 @@
   function assembleAnswer(findings, opts) {
     opts = opts || {};
     const mode = normalizeMode(opts.mode);
+    /* June P1 rubric is a wholly different draft shape (1.1-1.5), assembled by
+       its own builder; the August-style modes below are untouched. */
+    if (mode === "june") return assembleJuneRubric(findings, opts);
     const project = opts.project || "the provided code";
     const list = Array.isArray(findings) ? findings.slice() : [];
     const ruleById = {};
@@ -1594,6 +1687,307 @@
     return out.join("\n");
   }
 
+  /* ================= June P1 rubric assembly (spec 18) =================
+     The June 2025 paper scores P1 as five parts:
+       1.1 what the code models (2)        1.2 purpose of the interfaces (2)
+       1.3 the four OOP pillars (8)        1.4 two SOLID principles (4)
+       1.5 one design pattern (4)
+     This builder emits exactly those headings, in order, drawing on the scan's
+     findings PLUS (when given) the structural index so it can speak about
+     orchestration and inheritance the findings alone do not carry. Where the
+     scan genuinely cannot know something it emits a bracketed [fill in: ...]
+     cue rather than inventing. */
+
+  const JUNE_HEADINGS = [
+    "1.1 General analysis",
+    "1.2 Interfaces",
+    "1.3 OOP principles",
+    "1.4 SOLID principles",
+    "1.5 Design pattern",
+  ];
+
+  /* derive the structural facts 1.1-1.3 need from the pasted files. Returns the
+     class/interface index, an implements map, the most likely orchestrator and
+     a short list of the action verbs the public methods suggest. Degrades to a
+     thin object when no files are available (the draft then leans on findings). */
+  function juneStructure(files) {
+    const list = (Array.isArray(files) ? files : []).filter((f) => f && typeof f.text === "string");
+    if (!list.length) return null;
+    const index = buildIndex(list);
+    const ctxs = list.map(fileContext);
+    const classNames = Object.keys(index.classes).filter((n) => n !== "Program");
+    const ifaceNames = Object.keys(index.interfaces);
+    const implementsMap = {}; /* class -> [iface] */
+    const ifaceImpls = {};    /* iface -> [class] */
+    const callCounts = {};    /* class -> outgoing '.' call count (orchestration proxy) */
+    const verbs = new Set();
+    const VERB_RE = /^(Process|Register|Generate|Retrieve|Validate|Summari[sz]e|Add|Remove|Create|Build|Find|Get|Load|Save|Run|Execute|Handle|Notify|Send|Calculate|Plan|Mark|Distribute|Print|Update|Apply)/;
+    ctxs.forEach((ctx) => {
+      ctx.classes.forEach((cls) => {
+        if (cls.kind !== "class" && cls.kind !== "record") return;
+        const head = ctx.stripped.slice(cls.declIdx, cls.open);
+        const co = head.indexOf(":");
+        if (co !== -1) {
+          head.slice(co + 1).split(",").map((s) => s.trim().replace(/<.*$/, "")).filter(Boolean).forEach((b) => {
+            if (index.interfaces[b]) {
+              (implementsMap[cls.name] = implementsMap[cls.name] || []).push(b);
+              (ifaceImpls[b] = ifaceImpls[b] || []).push(cls.name);
+            }
+          });
+        }
+        const body = ctx.stripped.slice(cls.open, cls.close + 1);
+        callCounts[cls.name] = (callCounts[cls.name] || 0) + (body.match(/\)\s*\.\s*[A-Za-z_]/g) || []).length + (body.match(/\b_[A-Za-z]\w*\s*\.\s*[A-Za-z_]/g) || []).length;
+        (cls.members || []).forEach((mb) => {
+          if (mb.isCtor) return;
+          const vm = VERB_RE.exec(mb.name);
+          if (vm) verbs.add(vm[1].replace(/ise$/, "ize"));
+        });
+      });
+    });
+    /* orchestrator: a workflow/manager/service-named class wins; otherwise the
+       class with the most outgoing calls (it drives the others) */
+    const ORCH_RE = /(WorkflowManager|Workflow|Manager|Coordinator|Controller|Service|Planner|Orchestrator|Engine)$/;
+    let orchestrator = classNames.filter((n) => ORCH_RE.test(n))
+      .sort((a, b) => (callCounts[b] || 0) - (callCounts[a] || 0))[0] || null;
+    if (!orchestrator && classNames.length) {
+      orchestrator = classNames.slice().sort((a, b) => (callCounts[b] || 0) - (callCounts[a] || 0))[0];
+    }
+    return { index, classNames, ifaceNames, implementsMap, ifaceImpls, orchestrator, verbs: Array.from(verbs) };
+  }
+
+  function assembleJuneRubric(findings, opts) {
+    opts = opts || {};
+    const project = opts.project || "the provided code";
+    const list = Array.isArray(findings) ? findings.slice() : [];
+    const present = list.filter((f) => f.kind === "presence");
+    const violations = list.filter((f) => f.kind !== "presence");
+    const struct = juneStructure(opts.files) || (opts.index ? { index: opts.index } : null);
+    const pName = (p) => (PRINCIPLES[p] ? PRINCIPLES[p].name : p);
+    const out = [];
+    out.push("Problem 1: OOP/SOLID analysis of " + project + " (June P1 rubric)");
+    out.push("");
+
+    /* ---------- 1.1 General analysis ---------- */
+    out.push("=== " + JUNE_HEADINGS[0] + " ===");
+    if (struct && struct.classNames) {
+      const types = struct.classNames.slice();
+      const ifaces = struct.ifaceNames || [];
+      let p11 = "The code defines " + (types.length ? types.length + " classes (" + types.slice(0, 8).join(", ") + ")" : "a small set of classes") +
+        (ifaces.length ? " and " + ifaces.length + " interface" + (ifaces.length === 1 ? "" : "s") + " (" + ifaces.join(", ") + ")" : "") + ". ";
+      if (struct.orchestrator) {
+        p11 += struct.orchestrator + " orchestrates the workflow: it holds the other collaborators and drives them, so it reads as the entry point into the domain. ";
+      } else {
+        p11 += "[fill in: name the class that orchestrates the workflow and what it coordinates]. ";
+      }
+      if (struct.verbs && struct.verbs.length) {
+        p11 += "The public methods (" + struct.verbs.slice(0, 6).join(", ") + ") suggest the system " +
+          "[fill in: one sentence on what it models, e.g. it takes in items, checks/validates them, processes them and produces summaries].";
+      } else {
+        p11 += "[fill in: from the method names, say in one sentence what the system models and does].";
+      }
+      out.push(p11);
+    } else {
+      out.push("[fill in: list the top-level types, name the class that orchestrates the workflow, and say in one sentence what the system models. Paste the files and re-scan for an auto-filled draft].");
+    }
+    out.push("");
+
+    /* ---------- 1.2 Interfaces ---------- */
+    out.push("=== " + JUNE_HEADINGS[1] + " ===");
+    if (struct && struct.ifaceNames && struct.ifaceNames.length) {
+      const idx = struct.index;
+      const capability = struct.ifaceNames.filter((n) => idx.interfaces[n].members.length > 0);
+      const markers = struct.ifaceNames.filter((n) => idx.interfaces[n].members.length === 0);
+      let p12 = "The interfaces are small capability contracts that say what a class can DO, not what it is. ";
+      if (capability.length) {
+        p12 += "The capability interfaces are " + joinAnd(capability) + ", and each declares only the one to few members a client of that role needs. ";
+        const exampleClass = Object.keys(struct.implementsMap)[0];
+        if (exampleClass) {
+          p12 += exampleClass + " implements " + joinAnd(struct.implementsMap[exampleClass]) +
+            ", opting into exactly the roles it supports, while a class that lacks a capability simply does not implement that interface. ";
+        }
+      }
+      if (markers.length) {
+        p12 += joinAnd(markers) + " " + (markers.length === 1 ? "is a marker interface" : "are marker interfaces") +
+          " (no members) used only to tag types. ";
+      }
+      p12 += "This is Interface Segregation in action: by splitting capabilities into separate role interfaces, no class is forced to depend on or implement members it cannot honour, and each consumer (processor, manager) depends only on the narrow role it actually calls.";
+      out.push(p12);
+    } else {
+      out.push("[fill in: name the interfaces, say which classes implement which, and explain that small capability interfaces let each class opt into only the roles it supports (Interface Segregation)].");
+    }
+    out.push("");
+
+    /* ---------- 1.3 OOP principles (4 pillars) ---------- */
+    out.push("=== " + JUNE_HEADINGS[2] + " ===");
+    const presByPrin = (p) => present.filter((f) => f.principle === p);
+    /* Encapsulation */
+    const enc = presByPrin("ENC")[0];
+    if (enc) {
+      out.push("Encapsulation: present. " + enc.message + " (" + enc.file + ":" + enc.line + "). " + PURPOSE.ENC);
+    } else {
+      out.push("Encapsulation: [fill in: point to private fields / properties with private setters; purpose: the object controls its own state and stays valid]. " + PURPOSE.ENC);
+    }
+    /* Inheritance: the spec's calibration point, state interface-only honestly */
+    let inheritanceLine;
+    if (struct && struct.classNames) {
+      const classToClass = juneClassInheritance(opts.files, struct.index);
+      if (classToClass.length) {
+        inheritanceLine = "Inheritance: present as class-to-class inheritance, " + joinAnd(classToClass.map((x) => x.derived + " : " + x.base)) +
+          ". Purpose: a shared base lets derived types reuse and specialise behaviour through an is-a relationship.";
+      } else {
+        inheritanceLine = "Inheritance: the only inheritance here is interface implementation, so there is NO class-to-class inheritance. " +
+          (Object.keys(struct.implementsMap).length ? "Every class realises interfaces (e.g. " + Object.keys(struct.implementsMap).slice(0, 3).map((c) => c + " : " + struct.implementsMap[c].join(", ")).join("; ") + ") rather than deriving from a base class. " : "") +
+          "Stating that honestly is what scores the point: a shared interface type still lets the concrete types be stored and handled together, while behaviour reuse is achieved by composition, not a class hierarchy.";
+      }
+    } else {
+      inheritanceLine = "Inheritance: [fill in, and check honestly whether it is class-to-class inheritance or only interface implementation; if every class merely implements interfaces, say plainly there is NO class-to-class inheritance, which is the honest answer the rubric rewards].";
+    }
+    out.push(inheritanceLine);
+    /* Abstraction */
+    const absPres = presByPrin("ISP")[0] || presByPrin("DIP")[0];
+    if (struct && struct.ifaceNames && struct.ifaceNames.length) {
+      out.push("Abstraction: present. The consumers depend on the interfaces (" + joinAnd(struct.ifaceNames.slice(0, 4)) +
+        ") rather than the concrete classes behind them, so high-level logic is written once against the contracts. Purpose: hide implementation behind a role so callers are decoupled from the concrete type, which is the foundation DIP and OCP build on here.");
+    } else if (absPres) {
+      out.push("Abstraction: present. " + absPres.message + " Purpose: callers depend on roles/contracts, not concrete classes.");
+    } else {
+      out.push("Abstraction: [fill in: name the interfaces/abstract types the high-level classes depend on; purpose: decouple callers from concrete implementations].");
+    }
+    /* Polymorphism */
+    const poly = presByPrin("POLY")[0];
+    const ocpStrat = present.find((f) => f.pattern === "Strategy") || presByPrin("OCP")[0];
+    if (poly) {
+      out.push("Polymorphism: present. " + poly.message + " " + PURPOSE.POLY);
+    } else if (ocpStrat || (struct && struct.ifaceImpls && Object.values(struct.ifaceImpls).some((a) => a.length >= 2))) {
+      const polyIface = struct && struct.ifaceImpls ? Object.keys(struct.ifaceImpls).filter((i) => struct.ifaceImpls[i].length >= 2)[0] : null;
+      out.push("Polymorphism: present. Code that holds an abstraction" + (polyIface ? " (e.g. " + polyIface + ", implemented by " + joinAnd(struct.ifaceImpls[polyIface]) + ")" : "") +
+        " calls its members and the runtime dispatches to the concrete type, with ToString()/interface overrides resolved at run time. " + PURPOSE.POLY);
+    } else {
+      out.push("Polymorphism: [fill in: where a loop or call over an abstraction dispatches to different concrete types at run time; purpose: one piece of code handles many types]. " + PURPOSE.POLY);
+    }
+    out.push("");
+
+    /* ---------- 1.4 SOLID: the two principles the code most clearly APPLIES ----------
+       The June paper asks which TWO SOLID principles are applied, so we score by
+       how strongly a principle is PRESENT, not by raw finding count: each presence
+       finding is strong evidence, each violation of the same principle subtracts
+       (a principle the code also breaks is a weaker 'applied' pick). Ties break in
+       the model answer's canonical order — ISP first (many small interfaces), then
+       DIP (constructor injection), matching the DocumentManager solution. */
+    out.push("=== " + JUNE_HEADINGS[3] + " ===");
+    const SOLID = ["SRP", "OCP", "LSP", "ISP", "DIP"];
+    const TIE_ORDER = ["ISP", "DIP", "OCP", "SRP", "LSP"];
+    const presCount = {}, violCount = {};
+    SOLID.forEach((p) => { presCount[p] = 0; violCount[p] = 0; });
+    list.forEach((f) => {
+      if (presCount[f.principle] == null) return;
+      if (f.kind === "presence") presCount[f.principle]++; else violCount[f.principle]++;
+    });
+    const quality = (p) => presCount[p] * 3 - violCount[p];
+    /* candidates are principles with at least one presence finding (genuinely
+       applied); if fewer than two, fall back to any principle with evidence */
+    let candidates = SOLID.filter((p) => presCount[p] > 0);
+    if (candidates.length < 2) candidates = SOLID.filter((p) => presCount[p] > 0 || violCount[p] > 0);
+    const picks = candidates.sort((a, b) => {
+      const d = quality(b) - quality(a);
+      if (d !== 0) return d;
+      return TIE_ORDER.indexOf(a) - TIE_ORDER.indexOf(b);
+    }).slice(0, 2);
+    if (picks.length) {
+      picks.forEach((p) => {
+        const pres = presByPrin(p)[0];
+        const benefit = pres ? juneBenefit(pres.paragraph) : "[fill in: the specific place this principle is applied in " + project + " and the benefit it brings here]";
+        out.push(pName(p) + " (" + p + "): " + PURPOSE[p] + " Specifically here: " + benefit);
+      });
+      if (picks.length === 1) {
+        out.push("[fill in: a second SOLID principle the code clearly shows; pick the next strongest by evidence, e.g. SRP if classes are single-purpose].");
+      }
+    } else {
+      out.push("[fill in: pick the two SOLID principles the code most clearly applies (typically ISP when there are several small interfaces and DIP when dependencies are constructor-injected), and give each a general purpose plus the specific benefit here].");
+    }
+    out.push("");
+
+    /* ---------- 1.5 Design pattern: the single strongest, runner-up in a clause ---------- */
+    out.push("=== " + JUNE_HEADINGS[4] + " ===");
+    const patterns = present.filter((f) => f.pattern);
+    /* rank patterns: a named, code-anchored one beats a generic interface-strategy.
+       Strategy/Repository/Singleton/Command/Observer all carry a paragraph. */
+    const patternRank = { Singleton: 5, Command: 5, Observer: 4, Repository: 4, Strategy: 3 };
+    patterns.sort((a, b) => (patternRank[b.pattern] || 1) - (patternRank[a.pattern] || 1));
+    if (patterns.length) {
+      const top = patterns[0];
+      let p15 = top.paragraph;
+      const runner = patterns.find((f) => f.pattern !== top.pattern);
+      if (runner) {
+        /* keep the runner message verbatim (don't lower-case an identifier like
+           IDietaryRule into iDietaryRule); strip any leading verdict lead-in */
+        p15 += " (A second pattern is also defensible: " + runner.pattern + ", as seen where " + stripLead(runner.message) + ")";
+      }
+      out.push(p15);
+    } else {
+      out.push("[fill in: name the one design pattern you can point at in the code (Strategy when an interface has interchangeable implementations injected, Facade when one class hides a subsystem, Repository when data access sits behind an interface), and describe its role here].");
+    }
+    out.push("");
+
+    /* ---------- closing note: violations as improvement leads ---------- */
+    if (violations.length) {
+      const vPrins = Array.from(new Set(violations.map((f) => pName(f.principle))));
+      out.push("Note for the write-up: the scan also flagged " + violations.length + " possible weakness" +
+        (violations.length === 1 ? "" : "es") + " (" + joinAnd(vPrins) + "). The June rubric rewards an honest reading, so mention the clearest one or two as 'where the design could be improved' rather than padding. See the Violations mode for the detail and fixes.");
+    }
+    /* June house style: no em dashes. Some spliced presence paragraphs (shared
+       with the August draft, which keeps them) carry an em dash; normalise them
+       to a comma here so only the June output is affected, never the August one. */
+    return out.join("\n").replace(/\s*—\s*/g, ", ");
+  }
+
+  /* detect genuine class-to-class inheritance (a class whose base list names
+     another CLASS, not an interface). Used by 1.3 to decide whether to state
+     'no class-to-class inheritance'. */
+  function juneClassInheritance(files, index) {
+    const list = (Array.isArray(files) ? files : []).filter((f) => f && typeof f.text === "string");
+    if (!list.length || !index) return [];
+    const ctxs = list.map(fileContext);
+    const res = [];
+    ctxs.forEach((ctx) => {
+      ctx.classes.forEach((cls) => {
+        if (cls.kind !== "class") return;
+        const head = ctx.stripped.slice(cls.declIdx, cls.open);
+        const co = head.indexOf(":");
+        if (co === -1) return;
+        head.slice(co + 1).split(",").map((s) => s.trim().replace(/<.*$/, "")).filter(Boolean).forEach((b) => {
+          if (index.classes[b] && !index.interfaces[b] && b !== cls.name) res.push({ derived: cls.name, base: b });
+        });
+      });
+    });
+    return res;
+  }
+
+  /* the specific-benefit half of a presence paragraph: the text AFTER its own
+     'Purpose: ...' sentence (the 'Here ...' part), so 1.4 can pair our general
+     PURPOSE line with the code-specific benefit without repeating 'Purpose:'. */
+  function juneBenefit(paragraph) {
+    const s = String(paragraph || "");
+    const pi = s.indexOf("Purpose:");
+    if (pi === -1) return lowerFirst(stripLead(s));
+    /* skip past the purpose sentence (ends at the first '. ' after 'Purpose:') */
+    const after = s.slice(pi + 8);
+    const dot = after.indexOf(". ");
+    let tail = dot === -1 ? "" : after.slice(dot + 2).trim();
+    /* the benefit sentence usually opens with 'Here ...'; drop it so the splice
+       after 'Specifically here:' does not read 'Specifically here: here ...' */
+    tail = tail.replace(/^Here\b[,:]?\s*/i, "");
+    return tail ? lowerFirst(tail) : lowerFirst(stripLead(s));
+  }
+
+  /* lower-case the first character of a sentence (for splicing a paragraph mid-line) */
+  function lowerFirst(s) { s = String(s || ""); return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
+  /* strip a leading 'X is present: ' / 'The Y pattern is present: ' lead-in so the
+     paragraph can be spliced after a custom phrase without repeating the verdict */
+  function stripLead(s) {
+    return String(s || "").replace(/^[^:]{0,80}?\bis present[^:]{0,40}:\s*/i, "").replace(/^The\s+[A-Za-z ]+pattern is present[^:]*:\s*/i, "");
+  }
+
   /* ================= templates bank =================
      Fill-in-the-blank paragraph cards for the written answer. Blanks are
      shown as ___ ; the UI offers an Insert button that appends the text into
@@ -1670,7 +2064,7 @@
 
   /* ================= export ================= */
 
-  const CORE = { RULES, PRINCIPLES, TEMPLATES, MODES, scan, buildIndex, assembleAnswer, filterByMode, stripForScan, detectPresence };
+  const CORE = { RULES, PRINCIPLES, TEMPLATES, MODES, scan, buildIndex, assembleAnswer, assembleJuneRubric, filterByMode, stripForScan, detectPresence };
   global.ANALYZER_CORE = CORE;
   if (typeof module !== "undefined" && module.exports) module.exports = CORE;
 })(typeof window !== "undefined" ? window : globalThis);

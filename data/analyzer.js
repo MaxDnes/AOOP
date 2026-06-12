@@ -170,10 +170,11 @@ function visibleFindings() {
   return list;
 }
 
-/* the three explicit analysis modes (spec 08). Default is the full exam
-   answer so old behaviour is preserved for anyone with no persisted mode. */
-const MODES = ["full", "violations", "implementations"];
-const MODE_LABELS = { full: "Full exam answer", violations: "Violations", implementations: "Implementations" };
+/* the explicit analysis modes. Default is the full exam answer so old behaviour
+   is preserved for anyone with no persisted mode (spec 08). "june" (spec 18)
+   assembles the June P1 paper's 1.1-1.5 draft instead. */
+const MODES = ["full", "violations", "implementations", "june"];
+const MODE_LABELS = { full: "Full exam answer", violations: "Violations", implementations: "Implementations", june: "June rubric" };
 function normalizeMode(m) { return MODES.indexOf(m) !== -1 ? m : "full"; }
 
 /* ---------------- persistence (localStorage, try/catch) ---------------- */
@@ -281,9 +282,10 @@ function theoryHTML() {
 function modeChipsHTML() {
   const cur = curMode();
   const hints = {
-    full: "presence verdict + violations per principle (the full P1 rubric answer)",
-    violations: "only SOLID issues — coverage and draft count violations",
-    implementations: "only how each principle is implemented — coverage and draft count presence",
+    full: "presence verdict + violations per principle (the August all-SOLID rubric answer)",
+    violations: "only SOLID issues; coverage and draft count violations",
+    implementations: "only how each principle is implemented; coverage and draft count presence",
+    june: "the June P1 paper's 1.1-1.5 draft (general, interfaces, 4 OOP pillars, 2 SOLID, 1 pattern)",
   };
   let h = '<div class="anz-modes"><span class="anz-modes-label">MODE</span>';
   MODES.forEach(function (m) {
@@ -522,13 +524,17 @@ function draftHTML() {
     ? "violations per principle, in S·O·L·I·D order; principles with none get a one-line note"
     : mode === "implementations"
       ? "how each principle is implemented, in S·O·L·I·D order"
-      : "presence first, then violations, in S·O·L·I·D order";
+      : mode === "june"
+        ? "the June paper's 1.1-1.5 order: general, interfaces, 4 OOP pillars, 2 SOLID, 1 pattern"
+        : "presence first, then violations, in S·O·L·I·D order";
   h += '<div class="anz-draft-actions">' +
     '<span class="anz-mode-badge anz-mode-' + esc(mode) + '">' + esc(MODE_LABELS[mode]) + " mode</span>" +
     '<button class="anz-build" onclick="ANZ.buildAnswer()">' + (draftText ? "Rebuild from " : "Build draft from ") + sel.length + " ticked</button>" +
+    /* June mode: a one-click export as the file the exam wants (Problem_1_Submission.txt) */
+    (mode === "june" ? '<button class="copybtn anz-copy-submission" onclick="ANZ.copySubmission(this)" title="Copy the 1.1-1.5 draft as plain text for Problem_1_Submission.txt">Copy as Problem_1_Submission.txt</button>' : "") +
     '<span class="anz-draft-hint">' + esc(draftHint) + "</span></div>";
   h += '<div class="anz-answer">' +
-    '<div class="anz-ed-head"><span class="anz-ed-name">written answer draft — edit freely, then copy</span>' +
+    '<div class="anz-ed-head"><span class="anz-ed-name">written answer draft, edit freely, then copy</span>' +
     '<button class="copybtn" onclick="ANZ.copyAnswer(this)">copy</button></div>' +
     '<textarea class="anz-answer-ta" id="anz-answer-ta" spellcheck="false"' +
     ' oninput="ANZ.editDraft(this.value)" placeholder="// tick findings on the Findings tab, then Build draft — or Insert templates and write here">' +
@@ -906,17 +912,32 @@ function buildAnswer() {
   ensureState();
   const sel = selectedFindings();
   const mode = curMode();
+  /* June mode is structural: 1.1-1.3 come from the files regardless of ticking,
+     so it builds a complete 1.1-1.5 draft from ALL scanned findings when nothing
+     is ticked (one click, full answer). The August modes still require a tick. */
+  let buildFrom = sel;
   if (!sel.length) {
-    const why = mode === "violations" ? "tick at least one violation first"
-      : mode === "implementations" ? "tick at least one implementation finding first"
-      : "tick at least one finding first";
-    setStatus(why); state.tab = "draft"; paintRTabBar(); paintRBody(); return;
+    if (mode === "june" && lastScan) {
+      buildFrom = modeFindings();
+    } else {
+      const why = mode === "violations" ? "tick at least one violation first"
+        : mode === "implementations" ? "tick at least one implementation finding first"
+        : "tick at least one finding first";
+      setStatus(why); state.tab = "draft"; paintRTabBar(); paintRBody(); return;
+    }
   }
   const first = state.files[0] && state.files[0].name || "Project.cs";
   const project = first.replace(/\.[^.]+$/, "");
+  /* June mode needs the structural index + the raw files for 1.1-1.3 (orchestrator,
+     interface roster, class-vs-interface inheritance); the August modes ignore them. */
   let text = "";
-  try { text = core().assembleAnswer(sel, { project: project, mode: mode }); }
-  catch (e) { text = ""; }
+  try {
+    text = core().assembleAnswer(buildFrom, {
+      project: project, mode: mode,
+      files: state.files,
+      index: lastScan ? lastScan.index : null,
+    });
+  } catch (e) { text = ""; }
   draftText = text;
   state.tab = "draft";
   saveState();
@@ -960,6 +981,34 @@ function copyAnswer(btn) {
     btn.textContent = "copied ✓";
     btn.classList.add("done");
     setTimeout(function () { btn.textContent = "copy"; btn.classList.remove("done"); }, 1800);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(function () { anzFallbackCopy(text, done); });
+  } else anzFallbackCopy(text, done);
+}
+
+/* Copy the current June draft as the plain text that goes into the exam's
+   Problem_1_Submission.txt. We strip the '=== ... ===' heading decoration so the
+   1.1-1.5 headings read as clean plain-text section titles, leaving the prose
+   intact. Falls back to the same execCommand path as copyAnswer when the async
+   clipboard API is unavailable. */
+function submissionText() {
+  const ta = byId("anz-answer-ta");
+  const raw = ta ? ta.value : draftText;
+  return String(raw || "").replace(/^===\s*(.*?)\s*===$/gm, "$1");
+}
+
+function copySubmission(btn) {
+  const text = submissionText();
+  if (!text.trim()) { setStatus("build the June draft first, then copy"); return; }
+  const done = function () {
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = "copied ✓";
+      btn.classList.add("done");
+      setTimeout(function () { btn.textContent = orig; btn.classList.remove("done"); }, 1800);
+    }
+    setStatus("copied as Problem_1_Submission.txt — paste it into the exam file");
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(done).catch(function () { anzFallbackCopy(text, done); });
@@ -1060,6 +1109,7 @@ const ANZ = {
   dismissBanner: dismissBanner,
   splitPaste: splitPaste,
   copyAnswer: copyAnswer,
+  copySubmission: copySubmission,
   downloadZip: downloadZip,
 };
 

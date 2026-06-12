@@ -746,3 +746,184 @@ test("spec15: assembleAnswer (full) places the downcast under DIP with the quali
   notIncludes(lspSection, "Downcast of an injected abstraction",
      "the downcast must not headline the LSP section");
 });
+
+/* ======================================================================
+   SPEC 18 §A.1 — Singleton + Command pattern detection rules.
+   Same presence shape as Strategy/Repository/Observer (kind:"presence",
+   carries a `pattern` tag). Each gets a positive + a negative control.
+   ====================================================================== */
+function presOf(text) { return A.scan([{ name: "T.cs", text }]).findings.filter((f) => f.kind === "presence"); }
+function hasPattern(text, pat) { return presOf(text).some((f) => f.pattern === pat); }
+function patternFinding(text, pat) { return presOf(text).find((f) => f.pattern === pat); }
+
+test("singleton: eager variant fires (private ctor + static Instance) and names the variant", () => {
+  const eager = `public class Config {
+    private Config() {}
+    public static Config Instance { get; } = new Config();
+    public int Value;
+  }`;
+  ok(hasPattern(eager, "Singleton"), "eager singleton must be detected");
+  const it = patternFinding(eager, "Singleton");
+  includes(it.paragraph, "eager", "presence card must name the eager variant");
+  includes(it.title, "Singleton");
+});
+test("singleton: lazy variant fires (Lazy<T> field) and names it lazy", () => {
+  const lazy = `public class Db {
+    private static readonly Lazy<Db> _inst = new Lazy<Db>(() => new Db());
+    private Db() {}
+    public static Db Instance => _inst.Value;
+  }`;
+  ok(hasPattern(lazy, "Singleton"), "lazy singleton must be detected");
+  includes(patternFinding(lazy, "Singleton").paragraph, "lazy", "presence card must name the lazy variant");
+});
+test("singleton: a plain static helper class does NOT fire (no false positive)", () => {
+  const helper = `public static class MathHelper {
+    public static int Square(int x) => x * x;
+    public static int Cube(int x) => x * x * x;
+  }`;
+  ok(!hasPattern(helper, "Singleton"), "a static helper with no private ctor / Instance is not a Singleton");
+});
+
+test("command-pattern: fires on a [RelayCommand] method", () => {
+  const relay = `public partial class VM : ObservableObject {
+    [RelayCommand] private void Save() {}
+  }`;
+  ok(hasPattern(relay, "Command"), "[RelayCommand] must register the Command pattern");
+  const it = patternFinding(relay, "Command");
+  eq(it.principle, "OCP");
+  includes(it.paragraph, "Command pattern");
+  includes(it.paragraph, "bind", "the card explains the View binds to the command");
+});
+test("command-pattern: fires on an ICommand / RelayCommand member", () => {
+  ok(hasPattern(`public class VM { public ICommand SaveCommand { get; } }`, "Command"),
+     "an ICommand member must register the Command pattern");
+  ok(hasPattern(`public class VM { private readonly RelayCommand _go = null; }`, "Command"),
+     "a RelayCommand member must register the Command pattern");
+});
+test("command-pattern: does NOT fire on a class that merely binds to a command (no declaration)", () => {
+  /* a binding lives in AXAML / inside a string literal, which stripForScan blanks,
+     so a class that only references a command via markup must stay silent */
+  const binder = `public class View {
+    public string Markup => "<Button Command=\\"{Binding SaveCommand}\\"/>";
+  }`;
+  ok(!hasPattern(binder, "Command"), "binding to a command is not implementing the Command pattern");
+  ok(!hasPattern(`public class Runner { public void Go() { var x = 1 + 2; } }`, "Command"),
+     "a class with no command member/attribute is not a Command implementer");
+});
+
+/* ======================================================================
+   SPEC 18 §A.2 — June P1 rubric draft (mode "june"): 1.1-1.5 structure,
+   calibrated against the in-app Summer DocumentManager fixture.
+   ====================================================================== */
+const SUMMER = FX.summer2025.files;
+function juneDraft(files, opts) {
+  const sc = A.scan(files);
+  return A.assembleAnswer(sc.findings, Object.assign({ project: "DocumentManager", mode: "june", files: files, index: sc.index }, opts || {}));
+}
+
+test('modes: "june" is a registered mode and filterByMode treats it like full', () => {
+  ok(A.MODES.indexOf("june") !== -1, "'june' must be a registered draft mode");
+  eq(A.filterByMode(MODE_FINDINGS, "june").length, MODE_FINDINGS.length,
+     "june draws on every finding, so it filters like full");
+});
+
+test("june: the 1.1-1.5 headings appear in order", () => {
+  const draft = juneDraft(SUMMER);
+  const heads = ["1.1 General analysis", "1.2 Interfaces", "1.3 OOP principles", "1.4 SOLID principles", "1.5 Design pattern"];
+  let prev = -1;
+  heads.forEach((h) => {
+    const at = draft.indexOf(h);
+    ok(at >= 0, "June heading missing: " + h);
+    ok(at > prev, "June heading out of order: " + h);
+    prev = at;
+  });
+});
+
+test("june calibration: names the capability interfaces (Summer fixture)", () => {
+  const draft = juneDraft(SUMMER);
+  ["IProcessable", "ISummarizable", "IValidatable"].forEach((iface) =>
+    includes(draft, iface, "1.2 must name the capability interface " + iface));
+  /* ISP framing is required by the spec */
+  includes(draft, "Interface Segregation", "1.2 must frame the interfaces as Interface Segregation");
+});
+
+test("june calibration: states there is NO class-to-class inheritance (the honest point)", () => {
+  const draft = juneDraft(SUMMER);
+  includes(draft, "NO class-to-class inheritance",
+     "1.3 must state plainly that inheritance is interface-only, mirroring the model answer");
+});
+
+test("june calibration: picks ISP and DIP as the two SOLID principles", () => {
+  const draft = juneDraft(SUMMER);
+  const s14 = draft.slice(draft.indexOf("1.4 SOLID"), draft.indexOf("1.5 Design"));
+  includes(s14, "Interface Segregation Principle (ISP)", "ISP must be one of the two 1.4 picks");
+  includes(s14, "Dependency Inversion Principle (DIP)", "DIP must be one of the two 1.4 picks");
+  /* and SRP must NOT be one of the two (console violations inflate it, but the
+     paper asks which principles the code APPLIES) */
+  notIncludes(s14, "Single Responsibility Principle (SRP):", "SRP is not one of the two clean 1.4 picks here");
+});
+
+test("june calibration: names Strategy (or Facade) for the 1.5 pattern", () => {
+  const draft = juneDraft(SUMMER);
+  const s15 = draft.slice(draft.indexOf("1.5 Design"));
+  ok(/Strategy|Facade/.test(s15), "1.5 must name Strategy or Facade for the Summer fixture");
+});
+
+test("june: each 1.4 SOLID pick carries a general purpose AND a specific benefit", () => {
+  const draft = juneDraft(SUMMER);
+  const s14 = draft.slice(draft.indexOf("1.4 SOLID"), draft.indexOf("1.5 Design"));
+  includes(s14, "Purpose:", "1.4 must state the general purpose of each principle");
+  includes(s14, "Specifically here:", "1.4 must give the code-specific benefit of each principle");
+});
+
+test("june: the draft uses no em dashes and no self-applied bold (house style)", () => {
+  const draft = juneDraft(SUMMER);
+  ok(draft.indexOf("—") === -1, "June draft must contain no em dashes");
+  ok(draft.indexOf("**") === -1, "June draft must contain no markdown bold");
+});
+
+test("june: degrades to [fill in] cues when the scan cannot know (no files / no findings)", () => {
+  /* no files, no findings -> still emits the 1.1-1.5 skeleton with bracketed cues */
+  const draft = A.assembleAnswer([], { project: "Mystery", mode: "june" });
+  ["1.1 General analysis", "1.5 Design pattern"].forEach((h) => includes(draft, h, "skeleton heading " + h));
+  includes(draft, "[fill in:", "missing-knowledge spots must emit a bracketed fill-in cue, not an invention");
+});
+
+test("june: command + singleton patterns flow into 1.5 when present", () => {
+  /* a tiny project whose strongest pattern is a Singleton -> 1.5 names it */
+  const files = [{ name: "App.cs", text: `
+    public class Settings {
+      private Settings() {}
+      public static Settings Instance { get; } = new Settings();
+      public string Name { get; private set; } = "x";
+    }
+    public interface IRunner { void Run(); }
+    public class Runner : IRunner { private readonly Settings _s = Settings.Instance; public void Run() {} }
+  ` }];
+  const draft = A.assembleAnswer(A.scan(files).findings, { project: "App", mode: "june", files: files, index: A.scan(files).index });
+  const s15 = draft.slice(draft.indexOf("1.5 Design"));
+  includes(s15, "Singleton", "1.5 must name the Singleton when it is the strongest detected pattern");
+});
+
+test("june: existing August modes (full / violations / implementations) are byte-unchanged", () => {
+  /* the june dispatch must not alter the other modes' output at all */
+  const full = A.assembleAnswer(MODE_FINDINGS, { project: "Svc", mode: "full" });
+  const viol = A.assembleAnswer(A.filterByMode(MODE_FINDINGS, "violations"), { project: "Svc", mode: "violations" });
+  const impl = A.assembleAnswer(A.filterByMode(MODE_FINDINGS, "implementations"), { project: "Svc", mode: "implementations" });
+  includes(full, "=== Dependency Inversion Principle (DIP) ===", "full mode keeps its SOLID '=== Name (P) ===' headings");
+  includes(full, "=== Summary ===", "full mode keeps its Summary section");
+  notIncludes(full, "1.1 General analysis", "full mode must NOT emit June headings");
+  notIncludes(viol, "1.1 General analysis", "violations mode must NOT emit June headings");
+  notIncludes(impl, "1.1 General analysis", "implementations mode must NOT emit June headings");
+  /* passing files/index to a non-june mode is ignored (no June leakage) */
+  const fullWithExtras = A.assembleAnswer(MODE_FINDINGS, { project: "Svc", mode: "full", files: SUMMER, index: A.scan(SUMMER).index });
+  eq(fullWithExtras, full, "files/index are ignored outside june mode, so full output is unchanged");
+});
+
+test("june: assembleJuneRubric is exported directly and matches the mode dispatch", () => {
+  ok(typeof A.assembleJuneRubric === "function", "assembleJuneRubric must be exported");
+  const sc = A.scan(SUMMER);
+  const viaDirect = A.assembleJuneRubric(sc.findings, { project: "DocumentManager", files: SUMMER, index: sc.index });
+  const viaMode = A.assembleAnswer(sc.findings, { project: "DocumentManager", mode: "june", files: SUMMER, index: sc.index });
+  eq(viaDirect, viaMode, "mode:'june' must route to assembleJuneRubric");
+});

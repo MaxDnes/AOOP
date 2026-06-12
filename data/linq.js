@@ -446,6 +446,88 @@ List<Person> people = csv.GetRecords<Person>().ToList();   // maps header -> pro
 ]},
 
 {
+id: "df-csv-exam-legal",
+title: "CSV without CSVHelper (exam-legal parsing)",
+cat: "Data & Files",
+tags: ["csv", "exam-legal", "no csvhelper", "quote-aware", "quoted comma", "tryparse", "nullable", "split"],
+related: ["df-csv", "df-file-handling", "df-json", "pb-linq-json"],
+blocks: [
+  { p: "If P4 hands you a CSV instead of JSON, you still cannot reach for CSVHelper. The exam allows only System, Avalonia and CommunityToolkit.Mvvm, and CSVHelper is none of those, so a using for it does not compile against the allowed-libraries rule. The whole job is doable with System.IO and a tiny hand-written splitter. This is the same shape Query Lab emits when it detects CSV, so you can read its output and trust it." },
+  { p: "A plain string.Split(',') is not enough: any value that itself contains a comma is written quoted in CSV, and Split tears it into two columns. The fix is a small state loop that flips an inQuotes flag on every quote and only treats a comma as a separator while you are outside quotes." },
+  { code: String.raw`using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+
+// Quote-aware splitter: a small state loop, NOT string.Split, so a comma
+// inside a quoted field does not end the column.
+static List<string> SplitCsvLine(string line)
+{
+    var fields = new List<string>();
+    var current = new StringBuilder();
+    bool inQuotes = false;
+    for (int i = 0; i < line.Length; i++)
+    {
+        char ch = line[i];
+        if (ch == '"')
+        {
+            if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+            { current.Append('"'); i++; }      // "" inside quotes = one literal quote
+            else
+                inQuotes = !inQuotes;            // toggle in/out of a quoted field
+        }
+        else if (ch == ',' && !inQuotes)
+        { fields.Add(current.ToString()); current.Clear(); }
+        else
+            current.Append(ch);
+    }
+    fields.Add(current.ToString());             // last field, no trailing comma
+    return fields;
+}`, lang: "csharp", title: "Quote-aware splitter (the 10-line state loop)" },
+  { code: String.raw`// data.csv (note the planted gaps):
+// Name,Type,Crew,FuelLevel
+// Nostromo,Hauler,7,88.5
+// "Serenity, II",Transport,,55      <- quoted comma in Name + empty Crew cell
+// Rocinante,Frigate,4               <- missing trailing FuelLevel column
+
+public class Ship
+{
+    public string? Name { get; set; }       // every column nullable: cells can be empty
+    public string? Type { get; set; }
+    public int? Crew { get; set; }
+    public double? FuelLevel { get; set; }
+}
+
+static List<Ship> ParseCsv(string path)
+{
+    var ships = new List<Ship>();
+    string[] lines = File.ReadAllLines(path);
+    foreach (string line in lines.Skip(1))     // Skip(1) drops the header row
+    {
+        if (string.IsNullOrWhiteSpace(line)) continue;   // ignore blank lines
+        var c = SplitCsvLine(line);
+        ships.Add(new Ship
+        {
+            Name      = Get(c, 0),
+            Type      = Get(c, 1),
+            Crew      = int.TryParse(Get(c, 2), out int cr) ? cr : (int?)null,
+            FuelLevel = double.TryParse(Get(c, 3), out double f) ? f : (double?)null,
+        });
+    }
+    return ships;
+}
+
+// index-safe getter: a missing trailing column reads as null, never an
+// IndexOutOfRangeException, and an empty cell also reads as null.
+static string? Get(List<string> cells, int i) =>
+    i < cells.Count && cells[i].Trim().Length > 0 ? cells[i].Trim() : null;`, lang: "csharp", title: "ParseCsv with TryParse + nullable fallbacks" },
+  { rule: "Planted missing values are the whole point of the P4 data, same as the JSON nulls. Model every column as nullable, use TryParse so a bad or empty cell lands as null instead of throwing, then let your LINQ handle it with ?. and ??. After ParseCsv the rest is identical to JSON mode: the same Where/GroupBy/OrderBy queries and the same Problem_4_Query_Results.json write with WriteIndented." },
+  { gotcha: "Two traps the naive Split hits: a quoted comma like \"Serenity, II\" must stay one field (the inQuotes flag handles it), and a row with an empty trailing column, or a whole column dropped off the end, must not crash. Reading cells through the index-safe Get above makes both the empty cell and the missing column resolve to null. Doubled quotes \"\" inside a quoted field mean one literal quote character." },
+  { p: "Query Lab automates all of this end to end: paste the CSV, it infers the model, generates this exact ParseCsv plus the splitter, wires your queries, and exports the console project that builds and writes Problem_4_Query_Results.json. See [[pb-linq-json|the Problem 4 playbook]] for the query side." },
+]},
+
+{
 id: "lq-lambda",
 title: "Lambda expressions (LINQ's fuel)",
 cat: "LINQ",

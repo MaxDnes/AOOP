@@ -334,3 +334,111 @@ require("../data/exam-fixtures.js"); // sets global.EXAM_FIXTURES for loadFixtur
     restoreConfirm();
   });
 })();
+
+/* ======================================================================
+   SPEC 18 §A — June rubric mode UI: the fourth mode chip ("June rubric"),
+   the "Copy as Problem_1_Submission.txt" button on the Draft pane, and the
+   ANZ.copySubmission handler. The headless DOM shim above makes paint()/byId
+   no-ops so render() and the handlers run in Node.
+   ====================================================================== */
+require("../data/analyzer.js");
+require("../data/exam-fixtures.js");
+
+test("june: render() shows the fourth mode chip labelled 'June rubric'", () => {
+  global.localStorage.removeItem("aop-analyzer-state");
+  global.ANZ.loadFixture("summer2025");      // real DocumentManager fixture + scan
+  global.ANZ.mode("june");
+  const html = global.ANALYZER.render();
+  includes(html, "June rubric", "the June rubric mode chip must render");
+  const juneAt = html.indexOf("June rubric");
+  const activeAt = html.lastIndexOf("anz-mode-chip active", juneAt);
+  ok(activeAt !== -1 && activeAt < juneAt, "the June rubric chip is active after switching to june mode");
+  global.ANZ.mode("full");
+});
+
+test("june: ANZ.mode('june') persists and is exposed as a real mode", () => {
+  global.ANZ.loadFixture("summer2025");
+  global.ANZ.mode("june");
+  const saved = JSON.parse(global.localStorage.getItem("aop-analyzer-state"));
+  eq(saved.mode, "june", "june mode must persist to aop-analyzer-state");
+  ok(typeof global.ANZ.copySubmission === "function", "ANZ.copySubmission handler must exist");
+  global.ANZ.mode("full");
+});
+
+test("june: the 'Copy as Problem_1_Submission.txt' button shows on the Draft pane in june mode only", () => {
+  global.ANZ.loadFixture("summer2025");
+  global.ANZ.mode("june");
+  global.ANZ.tab("draft");
+  const juneHtml = global.ANALYZER.render();
+  includes(juneHtml, "Copy as Problem_1_Submission.txt", "the submission-copy button must appear in june mode");
+  includes(juneHtml, "June rubric mode", "the draft action bar names the June rubric mode");
+
+  /* the button is june-only: it must NOT appear in the other modes' draft pane */
+  global.ANZ.mode("full");
+  const fullHtml = global.ANALYZER.render();
+  notIncludes(fullHtml, "Copy as Problem_1_Submission.txt", "the submission button is june-only, hidden in full mode");
+  global.ANZ.tab("findings");
+});
+
+test("june: buildAnswer with NOTHING ticked still produces a complete 1.1-1.5 draft (one-click)", () => {
+  /* unlike the August modes (which demand a tick), June builds from all scanned
+     findings when nothing is ticked, so Max gets the full answer in one click */
+  global.localStorage.removeItem("aop-analyzer-state");
+  global.ANZ.loadFixture("summer2025");
+  global.ANZ.mode("june");
+  /* ensure no findings are ticked */
+  const saved = JSON.parse(global.localStorage.getItem("aop-analyzer-state"));
+  eq(Object.keys(saved.checked || {}).length, 0, "precondition: nothing ticked");
+  global.ANZ.buildAnswer();
+  global.ANZ.tab("draft");
+  const html = global.ANALYZER.render();
+  ["1.1 General analysis", "1.4 SOLID principles", "1.5 Design pattern"].forEach((h) =>
+    includes(html, h, "an unticked June build must still contain " + h));
+  /* it reproduces the calibration substance from the files alone */
+  includes(html, "IProcessable", "names the capability interfaces even with nothing ticked");
+  includes(html, "NO class-to-class inheritance", "states the inheritance honesty even with nothing ticked");
+  global.ANZ.mode("full");
+  global.ANZ.tab("findings");
+});
+
+test("june: buildAnswer in june mode produces a 1.1-1.5 draft and copySubmission strips the heading decoration", () => {
+  /* tick the fixture's findings, build the June draft, then drive the public
+     copySubmission handler. Give a realistic createElement/body/execCommand shim
+     so the clipboard-fallback path runs end to end and we can capture what it
+     would copy (clipboard API is absent in Node). Restored in finally. */
+  const A2 = require("../data/analyzer-core.js");
+  const savedCreate = global.document.createElement;
+  const savedBody = global.document.body;
+  const savedExec = global.document.execCommand;
+  let copied = null;
+  try {
+    global.document.createElement = function () {
+      return { style: {}, set value(v) { this._v = v; copied = v; }, get value() { return this._v; }, select() {} };
+    };
+    global.document.body = { appendChild() {}, removeChild() {} };
+    global.document.execCommand = function () { return true; };
+
+    global.ANZ.loadFixture("summer2025");
+    global.ANZ.mode("june");
+    const sc = A2.scan(global.EXAM_FIXTURES.summer2025.files);
+    sc.findings.forEach((f) => global.ANZ.toggle(f.ruleId + "|" + f.file + "|" + f.line, true));
+    global.ANZ.buildAnswer();
+    global.ANZ.tab("draft");
+    const html = global.ANALYZER.render();
+    includes(html, "1.1 General analysis", "the June draft is rendered into the answer textarea");
+    includes(html, "1.5 Design pattern", "all five June sections reach the draft");
+
+    /* the textarea lookup returns null in this shim, so copySubmission reads the
+       persisted draftText; the fallback copy captures the plain submission text */
+    global.ANZ.copySubmission(null);
+    ok(copied && copied.indexOf("1.1 General analysis") !== -1, "copySubmission copies the June draft");
+    ok(copied.indexOf("=== 1.1") === -1, "copySubmission strips the '=== ===' heading decoration");
+    ok(copied.indexOf("1.5 Design pattern") !== -1, "the plain 1.1-1.5 headings survive in the copied text");
+  } finally {
+    global.document.createElement = savedCreate;
+    global.document.body = savedBody;
+    global.document.execCommand = savedExec;
+    global.ANZ.mode("full");
+    global.ANZ.tab("findings");
+  }
+});

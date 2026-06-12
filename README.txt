@@ -61,8 +61,13 @@ ANALYSIS LAB    Paste the Problem 1 console project. It scans for OOP/SOLID
                 used flags the latent NullReferenceException; and the fix text is
                 context-matched (it only says "split the fat interface" when the
                 interface really has 3+ members, and never mentions a null-check
-                branch that is not in the code). "Download project (.zip)" packages
-                the pasted P1 code as a runnable net9.0 console project.
+                branch that is not in the code). A fourth "June rubric" mode lays
+                the draft out as the June paper's 1.1 to 1.5 sections (general
+                analysis, interfaces, four OOP pillars, two SOLID principles, one
+                design pattern) and adds a "Copy as Problem_1_Submission.txt" button,
+                and the scan now also detects Singleton and Command patterns.
+                "Download project (.zip)" packages the pasted P1 code as a runnable
+                net9.0 console project.
 
 TEST LAB        Paste the Problem 3 class or ViewModel, choose the test kinds,
                 and generate ready-to-paste xUnit files: plain unit tests,
@@ -85,7 +90,11 @@ QUERY LAB       Paste the Problem 4 JSON and it infers the C# model (missing /
                 checks, nested Any, sort, group + aggregate, above-average, top N,
                 select fields, binary search - reorder them, and copy ONE complete
                 Program.cs: null-safe deserialize, every query in order, console
-                printing, and a results JSON with the EXACT key names. Load a 2025
+                printing, and a results JSON with the EXACT key names. If the exam
+                ships a CSV file instead of JSON, paste it anyway and Query Lab
+                auto-detects it, shows a "CSV mode" badge, and generates a System-only
+                ParseCsv helper (File.ReadAllLines plus a quote-aware split, no
+                CSVHelper) feeding the same query pipeline. Load a 2025
                 preset (Summer spaceships, ReExam recipes) for the full solution.
                 The green "Export project (.zip)" button downloads a runnable
                 net9.0 console project: the generated Program.cs plus your pasted

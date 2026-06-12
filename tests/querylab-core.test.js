@@ -686,3 +686,234 @@ test("submission download does NOT depend on PROJZIP being loaded", () => {
   f.QL.downloadSubmission(f.els["ql-submit-btn"]);
   eq(downloads.sort().join(","), "Problem_4_Models.cs,Problem_4_Program.cs", "both files download with no zip core present");
 });
+
+/* ============================================================
+   spec 18: Query Lab CSV input mode (System-only, CSVHelper not allowed)
+   ============================================================ */
+
+/* a representative CSV with the two exam curveballs:
+   - a quoted field that contains commas ("Widget, deluxe" / "a, b, c")
+   - a planted EMPTY cell (price missing on row 2 -> nullable double) */
+const CSV_SAMPLE = [
+  "name,price,inStock,addedOn,notes",
+  '"Widget, deluxe",12.50,true,2024-01-15,handle with care',
+  "Gadget,,false,2024-02-01,spare",
+  'Gizmo,3,true,2024-03-10,"a, b, c"',
+].join("\n");
+
+/* JSON must still win when the text IS valid JSON, even if it also has commas. */
+test("csv: valid JSON is still parsed as JSON, never as CSV", () => {
+  const m = modelOf(SHIP_SAMPLE, {});
+  ok(!m.csvMode, "JSON array must NOT enter CSV mode");
+  const wrapped = modelOf(JSON.stringify({ recipes: [{ name: "A", tags: [] }] }), {});
+  ok(!wrapped.csvMode, "object-wrapped JSON must NOT enter CSV mode");
+});
+
+test("csv: detection requires a header + a data row + consistent column counts", () => {
+  ok(C.looksLikeCsv(CSV_SAMPLE).ok, "well-formed CSV is detected");
+  ok(!C.looksLikeCsv("name,price").ok, "header alone (no data row) is not CSV");
+  ok(!C.looksLikeCsv("just one column\nvalue").ok, "a single column is not a table");
+  /* a row with the wrong column count is rejected (not silently truncated) */
+  const ragged = "a,b,c\n1,2,3\n4,5";
+  ok(!C.looksLikeCsv(ragged).ok, "inconsistent column counts rejected");
+});
+
+test("csv: quote-aware splitter keeps commas inside quoted fields", () => {
+  const recs = C.parseCsvRecords(CSV_SAMPLE);
+  /* header + 3 data rows */
+  eq(recs.length, 4);
+  /* row 1 field 0 is the quoted "Widget, deluxe" as ONE cell */
+  eq(recs[1][0], "Widget, deluxe");
+  eq(recs[1].length, 5, "the quoted comma did not inflate the column count");
+  /* row 3 last field is the quoted "a, b, c" */
+  eq(recs[3][4], "a, b, c");
+});
+
+test("csv: model inference votes column kinds, empty cell -> nullable", () => {
+  const m = modelOf(CSV_SAMPLE, {});   /* faithful inference */
+  ok(m.csvMode, "CSV input enters CSV mode");
+  eq(m.sampleCount, 3, "three data rows");
+  const root = m.byName[m.rootClass];
+  const by = {};
+  root.fields.forEach((f) => (by[f.property] = f));
+  eq(by.Name.baseType, "string");
+  /* price has a planted empty cell -> nullable double */
+  eq(by.Price.baseType, "double");
+  ok(by.Price.nullable, "empty price cell makes Price nullable");
+  eq(by.InStock.baseType, "bool");
+  /* notes present in every row here -> non-nullable string */
+  ok(!by.Notes.nullable, "notes present in every row -> non-nullable");
+});
+
+test("csv: PascalCase property mapping keeps the original header for parsing", () => {
+  const csv = "first_name,total amount\nAda,10\nGrace,20";
+  const m = modelOf(csv, {});
+  const root = m.byName[m.rootClass];
+  const props = root.fields.map((f) => f.property);
+  includes(props.join(","), "FirstName");
+  includes(props.join(","), "TotalAmount");
+  /* the original header text is retained as the key + csvIndex for split-by-index */
+  const fn = root.fields.find((f) => f.property === "FirstName");
+  eq(fn.key, "first_name");
+  eq(fn.csvIndex, 0);
+});
+
+test("csv codegen: System-only ParseCsv + quote-aware SplitCsvLine, no CSVHelper, no JSON deserialize", () => {
+  const m = modelOf(CSV_SAMPLE);   /* UI posture: allNullable */
+  const code = C.generateProgram(m, [
+    { shape: "filter-equals", field: "name", value: "Gadget", name: "gadgets", output: true, outputKey: "gadgets", print: true },
+  ], { inputFile: "products.csv", outputFile: "Problem_4_Query_Results.json", namespace: "Products" });
+  includes(code, "private static List<");
+  includes(code, "ParseCsv(");
+  includes(code, "File.ReadAllLines(");
+  includes(code, "SplitCsvLine(");
+  includes(code, "bool inQuotes");
+  /* the planted-missing trap: TryParse with null fallback (no throw) */
+  includes(code, "double.TryParse(");
+  /* still writes the EXACT-key results JSON via System.Text.Json */
+  includes(code, "JsonSerializer.Serialize");
+  includes(code, "WriteIndented = true");
+  notIncludes(code, "CSVHelper", "CSVHelper must never appear (not an allowed library)");
+  notIncludes(code, "JsonSerializer.Deserialize", "CSV mode does not deserialize JSON");
+  notIncludes(code, "TODO", "no TODO stubs in CSV codegen");
+  braceBalanced(code);
+  parenBalanced(code);
+});
+
+test("csv codegen: only System.* usings, no foreign libraries", () => {
+  const m = modelOf(CSV_SAMPLE);
+  const code = C.generateProgram(m, [
+    { shape: "filter-equals", field: "name", value: "Gadget", name: "gadgets" },
+  ], { inputFile: "products.csv", namespace: "Products" });
+  usingsOf(code).forEach((u) => {
+    const allowed = u === "System" || u.indexOf("System.") === 0;
+    ok(allowed, "CSV codegen using not allowed: " + u);
+  });
+});
+
+test("csv codegen: nested-collection shapes are skipped with a comment, never broken code", () => {
+  const m = modelOf(CSV_SAMPLE);
+  const code = C.generateProgram(m, [
+    { shape: "filter-nested-any", collection: "missing", subField: "x", name: "bad" },
+    { shape: "filter-empty-collection", field: "missing", name: "bad2" },
+    { shape: "filter-equals", field: "name", value: "Gadget", name: "good", output: true, outputKey: "good" },
+  ], { inputFile: "products.csv", namespace: "Products" });
+  includes(code, "skipped");
+  includes(code, "CSV is flat");
+  /* the flat query still generates correctly */
+  includes(code, "s.Name == \"Gadget\"");
+  braceBalanced(code);
+  parenBalanced(code);
+});
+
+test("csv codegen: filter-equals on a bool/numeric column emits a typed literal, not a string (CS0019 guard)", () => {
+  const m = modelOf(CSV_SAMPLE);   /* inStock -> bool, price -> double, name -> string */
+  const code = C.generateProgram(m, [
+    { shape: "filter-equals", field: "inStock", value: "true", name: "inStockRows", output: true, outputKey: "inStockRows" },
+    { shape: "filter-equals", field: "price", value: "3", name: "byPrice", output: true, outputKey: "byPrice" },
+    { shape: "filter-equals", field: "name", value: "Gadget", name: "named", output: true, outputKey: "named" },
+  ], { inputFile: "products.csv", outputFile: "Problem_4_Query_Results.json", namespace: "Products" });
+  /* bool: bare true literal, never the string "true" */
+  includes(code, "s.InStock == true");
+  notIncludes(code, 's.InStock == "true"', "bool column must not be compared to a string literal (CS0019)");
+  /* numeric: bare token, never a quoted number */
+  includes(code, "s.Price == 3");
+  notIncludes(code, 's.Price == "3"', "numeric column must not be compared to a string literal (CS0019)");
+  /* string: still a quoted literal (no regression) */
+  includes(code, 's.Name == "Gadget"');
+  braceBalanced(code);
+  parenBalanced(code);
+});
+
+test("csv codegen: case-insensitive flag is ignored for a bool column (string.Equals would not compile)", () => {
+  const m = modelOf(CSV_SAMPLE);
+  const code = C.generateProgram(m, [
+    { shape: "filter-equals", field: "inStock", value: "false", caseInsensitive: true, name: "out", output: true, outputKey: "out" },
+  ], { inputFile: "products.csv", namespace: "Products" });
+  includes(code, "s.InStock == false");
+  notIncludes(code, "string.Equals(s.InStock", "string.Equals must not be applied to a bool field");
+});
+
+test("filter-equals: an unparseable value for a bool column falls back to a string literal (no broken token)", () => {
+  const m = modelOf(CSV_SAMPLE);
+  const code = C.generateProgram(m, [
+    { shape: "filter-equals", field: "inStock", value: "maybe", name: "out", output: true, outputKey: "out" },
+  ], { inputFile: "products.csv", namespace: "Products" });
+  /* not a valid bool token -> keep the quoted form so the file still parses;
+     desk-check / build would flag the user's value, but we never emit a bare `maybe`. */
+  includes(code, 's.InStock == "maybe"');
+});
+
+test("csv submission split: Program.cs carries ParseCsv, Models.cs the POCO, same namespace", () => {
+  const m = modelOf(CSV_SAMPLE);
+  const files = C.generateSubmissionFiles(m, [
+    { shape: "filter-equals", field: "name", value: "Gadget", name: "gadgets", output: true, outputKey: "gadgets" },
+  ], { inputFile: "products.csv", namespace: "Products" });
+  includes(files.program, "namespace Products;");
+  includes(files.program, "ParseCsv(");
+  includes(files.program, "SplitCsvLine(");
+  includes(files.models, "namespace Products;");
+  includes(files.models, "public class Row");
+  /* the model class lives only in Models.cs, the parser only in Program.cs */
+  notIncludes(files.models, "ParseCsv(", "the CSV parser must live only in Program.cs");
+  notIncludes(files.program, "public class Row", "the model class must live only in Models.cs");
+  braceBalanced(files.program); parenBalanced(files.program);
+  braceBalanced(files.models); parenBalanced(files.models);
+  notIncludes(files.program, "TODO");
+  notIncludes(files.models, "TODO");
+});
+
+test("csv model emission: non-null string column initialised to \"\" (no CS8618), nullable stays nullable", () => {
+  const m = modelOf(CSV_SAMPLE, {});   /* faithful: Notes non-null, Price nullable */
+  const code = C.emitModelClasses(m);
+  includes(code, 'public string Name { get; set; } = "";');
+  includes(code, "public double? Price { get; set; }");
+});
+
+/* ---- UI: CSV mode badge + paste hint + disabled nested rows ---- */
+test("csv UI: pasting CSV shows the CSV mode badge and a flat row count", () => {
+  const f = freshUI();
+  f.QL.setJson(CSV_SAMPLE);
+  const modelEl = f.els["ql-models"].innerHTML;
+  includes(modelEl, "CSV mode", "CSV badge shown near the model card");
+  includes(modelEl, "sample row", "CSV samples are counted as rows, not elements");
+});
+
+test("csv UI: the paste hint and empty-state mention both JSON and CSV", () => {
+  const f = freshUI();
+  const page = global.QUERYLAB.render();
+  includes(page, "CSV", "paste hint/empty-state mentions CSV");
+  includes(page, "CSV mode", "empty-state explains CSV switches to a CSV generator");
+});
+
+test("csv UI: a nested-collection query row is disabled with a hint in CSV mode", () => {
+  const f = freshUI();
+  f.QL.setJson(CSV_SAMPLE);
+  /* add a nested-any row, then switch it to the collection-only shape */
+  f.QL.addQuery();
+  f.QL.setRow(0, "shape", "filter-nested-any");
+  const rowsHtml = f.els["ql-rows"].innerHTML;
+  includes(rowsHtml, "ql-csv-disabled", "nested-collection row disabled in CSV mode");
+  includes(rowsHtml, "CSV is flat", "disabled row explains why");
+});
+
+test("csv UI: pasting CSV then JSON leaves CSV mode (no sticky badge)", () => {
+  const f = freshUI();
+  f.QL.setJson(CSV_SAMPLE);
+  includes(f.els["ql-models"].innerHTML, "CSV mode", "CSV badge after CSV paste");
+  f.QL.setJson(SHIP_SAMPLE);
+  notIncludes(f.els["ql-models"].innerHTML, "CSV mode", "CSV badge gone after switching back to JSON");
+});
+
+test("csv UI: a .csv input file name renames the class to a singular (products.csv -> Product)", () => {
+  const f = freshUI();
+  f.QL.setJson(CSV_SAMPLE);
+  /* default input file is data.json -> class stays the default Row */
+  includes(f.els["ql-models"].innerHTML, "class Row", "default CSV class name is Row");
+  /* naming a .csv input file derives a singular class name */
+  f.QL.setOpt("inputFile", "products.csv");
+  const modelEl = f.els["ql-models"].innerHTML;
+  includes(modelEl, "class Product", "products.csv derives class Product");
+  /* and the generated code uses that class name in ParseCsv */
+  includes(f.els["ql-output"].innerHTML, "Product", "generated code references the derived class");
+});

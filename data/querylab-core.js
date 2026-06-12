@@ -287,16 +287,210 @@
     };
   }
 
+  /* ===================== CSV parsing + inference ===================== */
+
+  /* A quote-aware CSV line/record reader. Lecture 12 lists CSV next to JSON, and
+     CSVHelper is NOT an allowed library, so this is the System-only idiom Query
+     Lab both PARSES with here and GENERATES into the C# (see emitCsvParser). It
+     walks the whole text once, honouring RFC-4180-style double quotes:
+       - a field may be wrapped in "..."; a literal " inside is doubled ("")
+       - commas and newlines inside quotes are part of the field
+       - rows are separated by \n (a trailing \r is trimmed)
+     Returns an array of rows, each row an array of string cells. */
+  function parseCsvRecords(text) {
+    var rows = [];
+    var row = [];
+    var field = "";
+    var inQuotes = false;
+    var i = 0;
+    var n = text.length;
+    var fieldStarted = false;   /* any char seen for the current field (incl. "") */
+    function pushField() { row.push(field); field = ""; fieldStarted = false; }
+    function pushRow() { pushField(); rows.push(row); row = []; }
+    while (i < n) {
+      var ch = text.charAt(i);
+      if (inQuotes) {
+        if (ch === '"') {
+          if (text.charAt(i + 1) === '"') { field += '"'; i += 2; continue; }
+          inQuotes = false; i++; continue;
+        }
+        field += ch; i++; continue;
+      }
+      if (ch === '"') { inQuotes = true; fieldStarted = true; i++; continue; }
+      if (ch === ",") { pushField(); fieldStarted = true; i++; continue; }
+      if (ch === "\r") { i++; continue; }
+      if (ch === "\n") {
+        /* a wholly blank physical line becomes an empty row we drop below */
+        pushRow(); i++; continue;
+      }
+      field += ch; fieldStarted = true; i++;
+    }
+    /* flush the last field/row if the text did not end with a newline, or if the
+       final field was a started-but-empty cell */
+    if (fieldStarted || field.length || row.length) pushRow();
+    /* drop fully empty rows (a single empty cell from a blank trailing line) */
+    return rows.filter(function (r) {
+      return !(r.length === 1 && r[0] === "");
+    });
+  }
+
+  /* Decide whether pasted text looks like CSV: a header line of comma-separated
+     names plus 1+ data rows, all with the same column count as the header, and
+     at least two columns (a single column is ambiguous prose, not a table).
+     Returns { ok, headers, dataRows } or { ok:false, error }. */
+  function looksLikeCsv(text) {
+    var raw = String(text == null ? "" : text).replace(/^﻿/, "");
+    if (!raw.trim()) return { ok: false, error: "Empty input." };
+    var records = parseCsvRecords(raw);
+    if (records.length < 2) {
+      return { ok: false, error: "CSV needs a header line and at least one data row." };
+    }
+    var headers = records[0].map(function (h) { return String(h == null ? "" : h).trim(); });
+    if (headers.length < 2) {
+      return { ok: false, error: "CSV needs at least two comma-separated columns." };
+    }
+    if (headers.some(function (h) { return h === ""; })) {
+      return { ok: false, error: "CSV header has an empty column name." };
+    }
+    var dataRows = records.slice(1);
+    /* every data row must have exactly the header's column count (quote-aware,
+       so a quoted comma does not inflate the count) */
+    var bad = dataRows.filter(function (r) { return r.length !== headers.length; });
+    if (bad.length) {
+      return {
+        ok: false,
+        error: "CSV column counts are inconsistent: header has " + headers.length +
+          " columns but " + bad.length + " row(s) differ.",
+      };
+    }
+    return { ok: true, headers: headers, dataRows: dataRows };
+  }
+
+  /* Vote a CSV column's scalar C# kind from its cell strings, mirroring the JSON
+     inference: a column is int if every non-empty cell is a whole number, double
+     if numeric with any fractional value, bool for true/false, DateTime-ish when
+     every non-empty cell looks like a date, else string. Empty cells force the
+     property nullable (the exam's planted-missing trap). */
+  function csvColumnKind(cells) {
+    var present = 0, sawEmpty = false;
+    var allInt = true, allNum = true, allBool = true, allDate = true, anyValue = false;
+    cells.forEach(function (cell) {
+      var v = String(cell == null ? "" : cell).trim();
+      if (v === "") { sawEmpty = true; return; }
+      present++; anyValue = true;
+      if (!/^-?\d+$/.test(v)) allInt = false;
+      if (!/^-?\d+(\.\d+)?$/.test(v) && !/^-?\.\d+$/.test(v)) allNum = false;
+      if (!/^(true|false)$/i.test(v)) allBool = false;
+      if (!looksLikeDate(v)) allDate = false;
+    });
+    var base = "string", isDate = false;
+    if (anyValue) {
+      if (allBool) base = "bool";
+      else if (allInt) base = "int";
+      else if (allNum) base = "double";
+      else if (allDate) { base = "string"; isDate = true; }
+      else base = "string";
+    }
+    return { baseType: base, isDateString: isDate, nullable: sawEmpty || present === 0 };
+  }
+
+  /* Build a flat one-class model from CSV headers + data rows. CSV is flat by
+     definition, so there are no nested classes or collections: every property is
+     a scalar (string/int/double/bool, optionally a DateTime via the same toggle
+     JSON mode offers for date-looking strings). The model carries csvMode plus a
+     csvColumns list (original header text -> property/baseType) so codegen can
+     emit a header-driven ParseCsv helper and the model card can show the badge. */
+  function inferCsvModel(parsed, opts) {
+    opts = opts || {};
+    var headers = parsed.headers;
+    var dataRows = parsed.dataRows;
+    var rootName = opts.rootClass || "Row";
+    if (!isIdentifier(rootName)) rootName = "Row";
+
+    /* a property name per header, de-duplicated so two headers never collide */
+    var used = {};
+    var columns = headers.map(function (h, ci) {
+      var prop = pascal(h);
+      if (!prop) prop = "Field" + (ci + 1);
+      var bareDup = prop;
+      var k = 2;
+      while (used[prop]) { prop = bareDup + k; k++; }
+      used[prop] = true;
+      var cells = dataRows.map(function (r) { return r[ci]; });
+      var kind = csvColumnKind(cells);
+      return {
+        header: h,              /* exact original header text (for split-by-index) */
+        index: ci,              /* 0-based column position in each record */
+        property: prop,
+        baseType: kind.baseType,
+        isDateString: kind.isDateString,
+        nullable: kind.nullable,
+      };
+    });
+
+    var fields = columns.map(function (c) {
+      return {
+        key: c.header,
+        property: c.property,
+        jsonName: null,         /* CSV mode has no [JsonPropertyName] */
+        nullable: c.nullable,
+        isCollection: false,
+        isObject: false,
+        isDateString: c.isDateString,
+        elementType: null,
+        nestedClass: null,
+        baseType: c.baseType,
+        csvIndex: c.index,
+      };
+    });
+
+    if (opts.allNullable) fields.forEach(function (f) { f.nullable = true; });
+
+    /* optional rename pass (parallels JSON mode), only the root class can rename */
+    var rename = opts.classNames || {};
+    if (rename[rootName]) rootName = rename[rootName];
+
+    var rootClass = { name: rootName, fields: fields };
+    var byName = {};
+    byName[rootName] = rootClass;
+
+    return {
+      csvMode: true,
+      rootClass: rootName,
+      rootKey: null,
+      sampleCount: dataRows.length,
+      classes: [rootClass],
+      byName: byName,
+      csvColumns: columns,
+    };
+  }
+
   /* Parse pasted text into a model, never throwing: returns
-     { ok:true, model } or { ok:false, error }. */
+     { ok:true, model } or { ok:false, error }. Tries JSON first (unchanged
+     byte-for-byte); only when JSON fails does it fall back to CSV detection, so
+     existing JSON behaviour and every JSON test stay identical. */
   function parseSample(text, opts) {
     var raw = String(text == null ? "" : text).trim();
-    if (!raw) return { ok: false, error: "Paste a JSON sample to infer the model." };
+    if (!raw) return { ok: false, error: "Paste a JSON or CSV sample to infer the model." };
     var parsed;
+    var jsonErr = null;
     try { parsed = JSON.parse(raw); }
-    catch (e) { return { ok: false, error: "Invalid JSON: " + e.message }; }
-    try { return { ok: true, model: inferModel(parsed, opts) }; }
-    catch (e2) { return { ok: false, error: e2.message }; }
+    catch (e) { jsonErr = e; }
+    if (jsonErr === null) {
+      try { return { ok: true, model: inferModel(parsed, opts) }; }
+      catch (e2) { return { ok: false, error: e2.message }; }
+    }
+    /* not JSON: try CSV before surfacing the JSON error */
+    var csv = looksLikeCsv(raw);
+    if (csv.ok) {
+      try { return { ok: true, model: inferCsvModel(csv, opts) }; }
+      catch (e3) { return { ok: false, error: e3.message }; }
+    }
+    /* neither JSON nor CSV: report the JSON error (the common case) plus a CSV
+       hint when the input at least had commas, so the user knows both are tried. */
+    var msg = "Invalid JSON: " + jsonErr.message;
+    if (raw.indexOf(",") !== -1 && csv.error) msg += "  (also tried CSV: " + csv.error + ")";
+    return { ok: false, error: msg };
   }
 
   /* ===================== C# type rendering ===================== */
@@ -353,6 +547,11 @@
         if (f.isCollection && !f.nullable) {
           /* non-null collection convention: initialise so LINQ is always safe */
           L.push("    public " + type + " " + f.property + " { get; set; } = new();");
+        } else if (model.csvMode && !f.nullable && f.baseType === "string" &&
+                   !(ov === "DateTime" && f.isDateString)) {
+          /* CSV non-null string: initialise to "" so Nullable-enabled builds emit
+             no CS8618 (the parser fills it from a cell, never leaving it null). */
+          L.push("    public " + type + " " + f.property + ' { get; set; } = "";');
         } else {
           L.push("    public " + type + " " + f.property + " { get; set; }");
         }
@@ -434,15 +633,55 @@
   function esc(v) { return String(v == null ? "" : v); }
   function csString(v) { return '"' + esc(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"'; }
 
+  /* The effective non-nullable C# scalar base of a root field, honouring the
+     user's per-field override (e.g. a date-looking string promoted to DateTime).
+     Returns "string" for anything not a known scalar so callers stay string-safe. */
+  function rootEffectiveBase(model, field, overrides) {
+    if (!field || field.isCollection || field.isObject) return "string";
+    var ov = (overrides || {})[model.rootClass + "." + field.key];
+    return effectiveBaseType(field, ov);
+  }
+
+  /* Render the comparison value for a `field == value` filter as a C# literal of
+     the field's type, so a bool/numeric column never gets compared to a string
+     literal (which would not compile, CS0019). bool -> true/false, int/double ->
+     the numeric token verbatim, everything else (string, DateTime, unparseable
+     numbers) -> a quoted string literal. Returns null when the requested value
+     cannot be rendered as the typed literal (caller falls back to string). */
+  function equalsLiteral(base, value) {
+    var v = esc(value).trim();
+    if (base === "bool") {
+      if (/^true$/i.test(v)) return "true";
+      if (/^false$/i.test(v)) return "false";
+      return null;
+    }
+    if (base === "int") {
+      return /^-?\d+$/.test(v) ? v : null;
+    }
+    if (base === "double") {
+      if (!/^-?(\d+(\.\d+)?|\.\d+)$/.test(v)) return null;
+      return v.indexOf(".") === -1 ? v : v;   /* a valid C# double literal as-is */
+    }
+    return null;   /* string / DateTime / anything else: caller uses csString */
+  }
+
   function genFilterEquals(model, row, overrides) {
     var f = findRootField(model, row.field);
     var ref = fieldRef(model, row.field, overrides);
-    var val = csString(row.value);
+    var base = rootEffectiveBase(model, f, overrides);
+    var typedLit = (base === "string" || base === "DateTime") ? null : equalsLiteral(base, row.value);
     var cmp;
-    if (row.caseInsensitive) {
-      cmp = "string.Equals(" + ref + ", " + val + ", StringComparison.OrdinalIgnoreCase)";
+    if (typedLit !== null) {
+      /* bool / numeric column: a typed `==` literal. Case-insensitive is a
+         string-only notion (string.Equals(...)) and does not apply here. */
+      cmp = ref + " == " + typedLit;
     } else {
-      cmp = ref + " == " + val;
+      var val = csString(row.value);
+      if (row.caseInsensitive) {
+        cmp = "string.Equals(" + ref + ", " + val + ", StringComparison.OrdinalIgnoreCase)";
+      } else {
+        cmp = ref + " == " + val;
+      }
     }
     return { expr: "source\n    .Where(s => " + cmp + ")\n    .ToList()" };
   }
@@ -644,12 +883,23 @@
 
   /* Produce the code for one query row:
      { decl, pre, printBlock, outputMember, name, label } */
+  /* nested-collection shapes a flat CSV cannot satisfy: codegen emits a harmless
+     comment for them in CSV mode (the UI also disables the row), so a stale row
+     never produces broken C#. */
+  var CSV_INCOMPATIBLE = { "filter-empty-collection": true, "filter-nested-any": true };
+
   function buildQuery(model, row, overrides) {
     var def = SHAPES[row.shape];
     var name = isIdentifier(row.name) ? row.name : "q";
     var label = row.label || (def ? def.label : row.shape);
     if (!def) {
       return { decl: "// (unknown query shape: " + esc(row.shape) + ")", name: name, label: label };
+    }
+    if (model.csvMode && CSV_INCOMPATIBLE[row.shape]) {
+      return {
+        decl: "// (skipped: '" + esc(row.shape) + "' needs a nested collection; CSV is flat)",
+        name: name, label: label, shape: row.shape,
+      };
     }
     var result = def.gen(model, Object.assign({}, row, { name: name }), overrides);
 
@@ -753,19 +1003,27 @@
     L.push("{");
     L.push("    private static void Main()");
     L.push("    {");
-    L.push("        // ---- Deserialize the JSON (case-insensitive, null-safe) ----");
-    L.push("        JsonSerializerOptions options = new() { PropertyNameCaseInsensitive = true };");
-    L.push('        string json = File.ReadAllText("' + esc(inputFile) + '");');
-    if (model.rootKey) {
-      /* object wrapper: deserialize the wrapper, then take its array property */
-      var wrapperProp = pascal(model.rootKey);
-      L.push("        " + wrapperName(ns) + " wrapper =");
-      L.push("            JsonSerializer.Deserialize<" + wrapperName(ns) + ">(json, options) ?? new " + wrapperName(ns) + "();");
-      L.push("        List<" + model.rootClass + "> source = wrapper." + wrapperProp + " ?? new List<" + model.rootClass + ">();");
+    if (model.csvMode) {
+      /* CSV mode: System-only parse via the ParseCsv helper (CSVHelper is NOT an
+         allowed library). The helper reads + splits + TryParses each row below. */
+      var csvInput = opts.inputFile || "data.csv";
+      L.push("        // ---- Parse the CSV (System-only, null-safe per column) ----");
+      L.push("        List<" + model.rootClass + "> source = ParseCsv(\"" + esc(csvInput) + "\");");
     } else {
-      L.push("        List<" + model.rootClass + "> source =");
-      L.push("            JsonSerializer.Deserialize<List<" + model.rootClass + ">>(json, options)");
-      L.push("            ?? new List<" + model.rootClass + ">();");
+      L.push("        // ---- Deserialize the JSON (case-insensitive, null-safe) ----");
+      L.push("        JsonSerializerOptions options = new() { PropertyNameCaseInsensitive = true };");
+      L.push('        string json = File.ReadAllText("' + esc(inputFile) + '");');
+      if (model.rootKey) {
+        /* object wrapper: deserialize the wrapper, then take its array property */
+        var wrapperProp = pascal(model.rootKey);
+        L.push("        " + wrapperName(ns) + " wrapper =");
+        L.push("            JsonSerializer.Deserialize<" + wrapperName(ns) + ">(json, options) ?? new " + wrapperName(ns) + "();");
+        L.push("        List<" + model.rootClass + "> source = wrapper." + wrapperProp + " ?? new List<" + model.rootClass + ">();");
+      } else {
+        L.push("        List<" + model.rootClass + "> source =");
+        L.push("            JsonSerializer.Deserialize<List<" + model.rootClass + ">>(json, options)");
+        L.push("            ?? new List<" + model.rootClass + ">();");
+      }
     }
     L.push("");
 
@@ -813,8 +1071,127 @@
     /* trim trailing blank lines inside Main */
     while (L.length && L[L.length - 1] === "") L.pop();
     L.push("    }");
+
+    /* CSV mode emits the ParseCsv helper + a quote-aware SplitCsvLine inside the
+       same Program class (System-only, no CSVHelper). */
+    if (model.csvMode) {
+      L.push("");
+      emitCsvParser(model, opts).forEach(function (ln) { L.push(ln); });
+    }
+
     L.push("}");
     return L;
+  }
+
+  /* Emit the static ParseCsv + SplitCsvLine helpers (System-only). ParseCsv reads
+     all lines, skips the header, splits each data line with the quote-aware
+     SplitCsvLine, then TryParses each typed column, leaving the property null on
+     an empty cell or a parse failure (the exam's planted-missing trap). The
+     splitter is a small state loop so a quoted comma survives, exactly the idiom
+     the lecture frames as the legal CSVHelper-free alternative. Returned as lines
+     indented to sit inside the Program class. */
+  function emitCsvParser(model, opts) {
+    opts = opts || {};
+    var inputFile = opts.inputFile || "data.csv";
+    var root = model.byName[model.rootClass];
+    var fields = (root && root.fields) || [];
+    var overrides = opts.overrides || {};
+    var L = [];
+
+    L.push("    // Read the CSV with System types only (no external CSV library is allowed).");
+    L.push("    // Skips the header line, then maps each row's cells to a typed " + model.rootClass + ".");
+    L.push("    private static List<" + model.rootClass + "> ParseCsv(string path)");
+    L.push("    {");
+    L.push("        var rows = new List<" + model.rootClass + ">();");
+    L.push("        string[] lines = File.ReadAllLines(path);");
+    L.push("        // line 0 is the header; data starts at line 1.");
+    L.push("        for (int i = 1; i < lines.Length; i++)");
+    L.push("        {");
+    L.push("            if (string.IsNullOrWhiteSpace(lines[i])) continue;");
+    L.push("            string[] cells = SplitCsvLine(lines[i]);");
+    L.push("            var row = new " + model.rootClass + "();");
+    fields.forEach(function (f) {
+      var idx = f.csvIndex;
+      var ov = overrides[model.rootClass + "." + f.key];
+      L.push("            // column " + idx + ": " + f.property);
+      L.push("            if (" + idx + " < cells.Length)");
+      L.push("            {");
+      L.push(indentN(csvAssignLines(f, ov, idx), 16));
+      L.push("            }");
+    });
+    L.push("            rows.Add(row);");
+    L.push("        }");
+    L.push("        return rows;");
+    L.push("    }");
+    L.push("");
+    /* the quote-aware splitter: a 10-line state loop so quoted commas survive */
+    L.push("    // Quote-aware single-line splitter: a comma inside \"...\" stays in the field,");
+    L.push("    // and a doubled \"\" inside a quoted field is one literal quote.");
+    L.push("    private static string[] SplitCsvLine(string line)");
+    L.push("    {");
+    L.push("        var cells = new List<string>();");
+    L.push("        var sb = new System.Text.StringBuilder();");
+    L.push("        bool inQuotes = false;");
+    L.push("        for (int i = 0; i < line.Length; i++)");
+    L.push("        {");
+    L.push("            char c = line[i];");
+    L.push("            if (inQuotes)");
+    L.push("            {");
+    L.push("                if (c == '\"' && i + 1 < line.Length && line[i + 1] == '\"') { sb.Append('\"'); i++; }");
+    L.push("                else if (c == '\"') { inQuotes = false; }");
+    L.push("                else { sb.Append(c); }");
+    L.push("            }");
+    L.push("            else if (c == '\"') { inQuotes = true; }");
+    L.push("            else if (c == ',') { cells.Add(sb.ToString()); sb.Clear(); }");
+    L.push("            else { sb.Append(c); }");
+    L.push("        }");
+    L.push("        cells.Add(sb.ToString());");
+    L.push("        return cells.ToArray();");
+    L.push("    }");
+    return L;
+  }
+
+  /* the per-column assignment for ParseCsv: trim the cell, leave the property null
+     when empty, otherwise TryParse into the typed (nullable) property. Strings are
+     assigned directly (null when empty); DateTime via DateTime.TryParse. Returns
+     a multi-line string (no leading indent; the caller indents the whole block). */
+  function csvAssignLines(field, override, idx) {
+    var prop = field.property;
+    var cell = "cells[" + idx + "].Trim()";
+    var lines = [];
+    lines.push("string v" + idx + " = " + cell + ";");
+    var isDate = field.isDateString && override === "DateTime";
+    var base = field.baseType;
+    if (override === "DateTime" && field.isDateString) base = "DateTime";
+
+    if (base === "string") {
+      if (field.nullable) {
+        /* empty string -> null so a planted missing value reads as null */
+        lines.push("row." + prop + " = v" + idx + ".Length == 0 ? null : v" + idx + ";");
+      } else {
+        /* non-nullable string column: assign verbatim (empty stays "") */
+        lines.push("row." + prop + " = v" + idx + ";");
+      }
+    } else if (base === "int") {
+      lines.push("if (int.TryParse(v" + idx + ", out int p" + idx + ")) row." + prop + " = p" + idx + ";");
+    } else if (base === "double") {
+      lines.push("if (double.TryParse(v" + idx + ", System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double p" + idx + ")) row." + prop + " = p" + idx + ";");
+    } else if (base === "bool") {
+      lines.push("if (bool.TryParse(v" + idx + ", out bool p" + idx + ")) row." + prop + " = p" + idx + ";");
+    } else if (base === "DateTime") {
+      lines.push("if (DateTime.TryParse(v" + idx + ", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out DateTime p" + idx + ")) row." + prop + " = p" + idx + ";");
+    } else {
+      lines.push("row." + prop + " = v" + idx + ".Length == 0 ? null : v" + idx + ";");
+    }
+    return lines.join("\n");
+  }
+
+  /* indent every line of a block by n spaces (blank lines stay blank). */
+  function indentN(block, n) {
+    var pad = new Array(n + 1).join(" ");
+    return String(block).split("\n").map(function (ln) {
+      return ln.length ? pad + ln : ln;
+    }).join("\n");
   }
 
   /* Emit the wrapper class (for object-rooted JSON) followed by the model
@@ -1037,6 +1414,10 @@
     inferModel: inferModel,
     extractArray: extractArray,
     emitModelClasses: emitModelClasses,
+    /* CSV mode */
+    looksLikeCsv: looksLikeCsv,
+    parseCsvRecords: parseCsvRecords,
+    inferCsvModel: inferCsvModel,
     /* codegen */
     generateProgram: generateProgram,
     generateSubmissionFiles: generateSubmissionFiles,

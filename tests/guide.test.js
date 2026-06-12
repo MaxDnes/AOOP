@@ -186,6 +186,24 @@ test("hero maps each problem to its tool and Test Lab is the P3 self-check", () 
   includes(html, "self-check", "Test Lab framed as the self-check");
 });
 
+/* ============ spec 18: CSV mode in the P4 play, June rubric in the P1 play ============
+   The integration agent threads two spec-18 capabilities into the guide prose:
+   the Query Lab CSV fallback (P4) and the Analysis Lab June rubric draft plus its
+   Copy as Problem_1_Submission.txt button (P1). Pin both so the prose cannot drift. */
+test("P4 play mentions Query Lab CSV mode and the exam-legal System-only parsing", () => {
+  const html = GUIDE.render();
+  includes(html, "CSV mode", "P4 play names CSV mode");
+  /* the prose tells Max to paste a CSV anyway and that parsing is System-only */
+  includes(html, "exam-legal System-only parsing", "P4 play frames CSV parsing as exam-legal and System-only");
+  includes(html, "no CSVHelper", "P4 play notes CSVHelper is not used");
+});
+
+test("P1 play mentions the June rubric mode and the Copy as Problem_1_Submission.txt button", () => {
+  const html = GUIDE.render();
+  includes(html, "June rubric", "P1 play names the June rubric mode");
+  includes(html, "Copy as Problem_1_Submission.txt", "P1 play names the submission copy button");
+});
+
 /* ============ Node-loadable + render is idempotent (no throw on repeat) ============ */
 test("render() is pure and repeatable (no document access at render time)", () => {
   const a = GUIDE.render();

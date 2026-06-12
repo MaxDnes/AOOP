@@ -86,6 +86,19 @@
   padding: 7px 12px;
   text-transform: uppercase; letter-spacing: 0.5px;
 }
+/* CSV mode badge: input was detected as CSV, not JSON (cyan, the "alternate
+   input" accent so it reads distinct from the green codegen chrome). */
+.ql-csv-badge {
+  display: inline-block;
+  margin-left: 8px;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--cyan);
+  border: 1px solid var(--cyan);
+  border-radius: 4px;
+  padding: 1px 6px;
+  vertical-align: middle;
+}
 .ql-class { padding: 7px 12px 9px; }
 .ql-class + .ql-class { border-top: 1px solid var(--line-soft); }
 .ql-class-name {
@@ -241,6 +254,12 @@
 .ql-row-body {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
   padding: 8px 10px;
+}
+/* CSV-disabled row hint: a nested-collection query a flat CSV cannot answer */
+.ql-csv-disabled {
+  font-family: var(--mono); font-size: 11px; line-height: 1.5;
+  color: var(--text-faint);
+  font-style: italic;
 }
 .ql-row-foot {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px;

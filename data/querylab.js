@@ -32,6 +32,14 @@ const SHAPE_UI = [
 const SHAPE_BY_KEY = {};
 SHAPE_UI.forEach(function (s) { SHAPE_BY_KEY[s.key] = s; });
 
+/* shapes that operate on a child collection: meaningless on a flat CSV, so they
+   are disabled with a hint when CSV mode is active (the exam cannot ask
+   trips-per-ship of a flat file). */
+const CSV_DISABLED_SHAPES = {
+  "filter-empty-collection": true,
+  "filter-nested-any": true,
+};
+
 const MATCH_MODES = [
   { key: "equals", label: "== value" },
   { key: "null",   label: "== null" },
@@ -136,8 +144,31 @@ function recompute() {
   if (!C) { parseError = "query-lab core not loaded"; model = null; return; }
   if (!state.json || !state.json.trim()) { model = null; parseError = null; return; }
   const r = C.parseSample(state.json, { allNullable: true });
-  if (r.ok) { model = r.model; parseError = null; }
-  else { model = null; parseError = r.error; }
+  if (!r.ok) { model = null; parseError = r.error; return; }
+  /* CSV mode: give the inferred class a sensible singular name from the input
+     file (products.csv -> Product), only when the user has named a .csv input
+     file. JSON inference is left exactly as-is so its behaviour stays byte-stable. */
+  if (r.model && r.model.csvMode) {
+    const stem = csvClassFromInput(state.inputFile);
+    if (stem && stem !== r.model.rootClass) {
+      const r2 = C.parseSample(state.json, { allNullable: true, classNames: { Row: stem } });
+      if (r2.ok && r2.model.csvMode) { model = r2.model; parseError = null; return; }
+    }
+  }
+  model = r.model; parseError = null;
+}
+
+/* derive a singular PascalCase class name from a *.csv input file name, e.g.
+   "products.csv" -> "Product", "order_lines.csv" -> "OrderLine". Returns null
+   when the input file is not a usable .csv name (so the default "Row" stays). */
+function csvClassFromInput(inputFile) {
+  const C = core();
+  const name = String(inputFile == null ? "" : inputFile).trim();
+  if (!/\.csv$/i.test(name)) return null;
+  const stem = name.replace(/\.csv$/i, "").split(/[\\/]/).pop();
+  if (!stem) return null;
+  const singular = C && typeof C.singular === "function" ? C.singular(stem) : stem;
+  return /^[A-Za-z_]\w*$/.test(singular) ? singular : null;
 }
 
 /* available field keys for dropdowns (root scalar/collection fields) */
@@ -201,7 +232,7 @@ function render() {
 
   /* LEFT pane: JSON + inferred model */
   h += '<div class="ql-left">';
-  h += '<textarea class="ql-json" id="ql-json" spellcheck="false" placeholder="// paste the exam JSON array (or an object wrapping one array) here" oninput="QL.setJson(this.value)">' + esc(state.json) + "</textarea>";
+  h += '<textarea class="ql-json" id="ql-json" spellcheck="false" placeholder="// paste the exam JSON (an array, or an object wrapping one array) — or paste a CSV (a header line + data rows); Query Lab auto-detects which and switches to CSV mode" oninput="QL.setJson(this.value)">' + esc(state.json) + "</textarea>";
   h += '<div class="ql-models" id="ql-models">' + modelsHTML() + "</div>";
   h += "</div>";
 
@@ -244,7 +275,7 @@ function modelsHTML() {
     let e = '<div class="ql-empty ql-start">';
     e += '<div class="ql-start-title">Start here</div>';
     e += '<ol class="ql-start-steps">';
-    e += '<li><b>Paste</b> the Problem 4 JSON above (an array, or an object wrapping one array).</li>';
+    e += '<li><b>Paste</b> the Problem 4 data above: JSON (an array, or an object wrapping one array) or CSV (header line + rows). CSV switches to a System-only ParseCsv generator automatically.</li>';
     e += '<li><b>Add query rows</b> on the right and pick fields from the inferred model.</li>';
     e += '<li><b>Copy</b> the Program.cs or <b>Export project (.zip)</b> to run it, then <b>Download submission files</b> for the two hand-in files Problem_4_Program.cs + Problem_4_Models.cs.</li>';
     e += '</ol>';
@@ -257,7 +288,12 @@ function modelsHTML() {
     e += '</div>';
     return e;
   }
-  let h = '<div class="ql-models-head">Inferred model · ' + esc(model.sampleCount) + " sample element" + (model.sampleCount === 1 ? "" : "s") + "</div>";
+  let h = '<div class="ql-models-head">Inferred model · ' + esc(model.sampleCount) + " sample " + (model.csvMode ? "row" : "element") + (model.sampleCount === 1 ? "" : "s");
+  if (model.csvMode) {
+    /* CSV mode badge near the model card (the input was detected as CSV, not JSON) */
+    h += '<span class="ql-csv-badge" title="input detected as CSV; System-only ParseCsv is generated (CSVHelper is not an allowed library)">CSV mode</span>';
+  }
+  h += "</div>";
   model.classes.forEach(function (cls) {
     h += '<div class="ql-class">';
     h += '<div class="ql-class-name">class ' + esc(cls.name) + "</div>";
@@ -336,6 +372,19 @@ function rowHTML(row, i) {
   /* shape-specific controls */
   h += '<div class="ql-row-body">';
   const needs = sh.needs;
+  /* nested-collection shapes need a child collection, which a flat CSV cannot
+     have. In CSV mode disable those rows with a one-line hint instead of the
+     (empty) collection dropdowns. */
+  if (model && model.csvMode && CSV_DISABLED_SHAPES[row.shape]) {
+    h += '<span class="ql-csv-disabled">CSV is flat: this nested-collection query needs JSON. Pick a flat-field shape (equals, contains, sort, group, above-average, top N, select, binary search).</span>';
+    h += "</div>";   /* close ql-row-body */
+    /* still render the per-row footer so the row can be removed/reordered cleanly */
+    h += '<div class="ql-row-foot">';
+    h += '<button class="ql-mini ql-x" title="remove this CSV-incompatible query" onclick="QL.removeQuery(' + i + ')">✕ remove</button>';
+    h += "</div>";
+    h += "</div>";   /* close ql-row */
+    return h;
+  }
   if (needs.indexOf("field") !== -1) {
     h += fieldSelect(row, "field", rootFields(), row.field);
   }

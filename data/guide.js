@@ -169,8 +169,8 @@ function render() {
     steps: [
       "Paste the whole Problem 1 console project into the Analysis Lab and scan it.",
       "Read the findings, each with its code location and the SOLID principle it touches.",
-      "Pick the mode chips: full for everything, violations for what is broken, implementations for what is already honored. Answer presence first.",
-      "Tick the findings you will use, then build the Full-answer Draft and copy it out.",
+      "Pick the mode chips: full for everything, violations for what is broken, implementations for what is already honored, June rubric for the June paper's 1.1 to 1.5 layout. Answer presence first.",
+      "Tick the findings you will use, then build the draft. In June rubric mode use the Copy as Problem_1_Submission.txt button to copy it out with the 1.1 to 1.5 headings.",
     ],
     deliver: "The draft is the deliverable. Problem 1 has no submission file in the flat set, so there is " +
       "nothing to download here. Paste the draft into the channel the exam paper names.",
@@ -204,6 +204,7 @@ function render() {
     tool: "querylab", toolLabel: "Query Lab", color: "#39bae6",
     steps: [
       "Paste the exam JSON FIRST and let Query Lab infer the model; missing and null fields become nullable, which is the planted trap.",
+      "If the data file is CSV instead of JSON, paste it anyway: Query Lab switches to CSV mode and generates exam-legal System-only parsing, no CSVHelper.",
       "Add the query rows in the order the paper asks, and reorder them if needed.",
       "Verify with Export project (.zip): unzip, cd into the unzipped folder, then dotnet run so the data file resolves.",
       "Click Download submission files.",
