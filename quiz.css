@@ -1,0 +1,336 @@
+/* ============================================================
+   QUIZ · styles (namespaced under .qz)
+   Reuses the app theme variables from styles.css :root.
+   ============================================================ */
+
+.qz { margin-top: 6px; }
+
+.qz-label {
+  font-family: var(--mono);
+  font-size: 10.5px; font-weight: 700;
+  letter-spacing: 2.2px; text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 22px 0 10px;
+}
+
+.qz-msg {
+  margin: 10px 0;
+  padding: 9px 14px;
+  font-size: 13.5px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border: 1px solid rgba(230, 180, 80, 0.35);
+  border-radius: 8px;
+}
+
+/* ---------- start screen: category chips ---------- */
+.qz-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.qz-chip {
+  font-family: var(--mono); font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.qz-chip:hover { border-color: var(--cat-color, var(--amber)); }
+.qz-chip.on {
+  color: var(--text);
+  border-color: var(--cat-color, var(--amber));
+  background: var(--ink-3); /* fallback */
+  background: color-mix(in srgb, var(--cat-color, #e6b450) 12%, transparent);
+  box-shadow: inset 0 0 0 1px var(--cat-color, var(--amber));
+}
+.qz-chip-n { color: var(--text-faint); font-size: 11px; margin-left: 3px; }
+
+/* ---------- start screen: modes ---------- */
+.qz-modes { display: flex; flex-wrap: wrap; gap: 8px; }
+.qz-mode {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 1px;
+  min-width: 180px;
+  text-align: left;
+  color: var(--text-dim);
+  background: var(--ink-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  padding: 9px 14px;
+  cursor: pointer;
+  font-family: var(--body);
+  transition: border-color .12s;
+}
+.qz-mode:hover { border-color: var(--amber); }
+.qz-mode.on { border-color: rgba(230, 180, 80, 0.55); background: var(--amber-soft); }
+.qz-mode b { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.qz-mode.on b { color: #ffd98a; }
+.qz-mode i { font-size: 11px; color: var(--text-faint); font-style: normal; }
+
+.qz-start {
+  display: block;
+  margin: 22px 0 4px;
+  font-family: var(--display);
+  font-size: 14.5px; font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--ink-0);
+  background: linear-gradient(135deg, var(--amber), #f0c869);
+  border: none;
+  border-radius: 9px;
+  padding: 11px 26px;
+  cursor: pointer;
+  box-shadow: 0 0 22px rgba(230, 180, 80, 0.22);
+}
+.qz-start:hover { filter: brightness(1.07); }
+.qz-start-note {
+  margin: 6px 0 2px;
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--text-faint);
+  max-width: 560px; line-height: 1.5;
+}
+
+/* ---------- resume banner ---------- */
+.qz-resume {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px;
+  margin: 4px 0 14px;
+  padding: 11px 16px;
+  border-radius: var(--radius);
+  background: var(--cyan-soft);
+  border: 1px solid rgba(57, 186, 230, 0.35);
+}
+.qz-resume-txt { font-size: 13.5px; color: var(--text); }
+.qz-resume-txt b { color: var(--cyan); }
+.qz-resume-acts { display: flex; gap: 8px; }
+
+/* ---------- stats-management row ---------- */
+.qz-stats-mgmt { flex-wrap: wrap; }
+
+/* ---------- stats bars ---------- */
+.qz-statbars { display: flex; flex-direction: column; gap: 7px; max-width: 640px; }
+.qz-statbar { display: flex; align-items: center; gap: 12px; }
+.qz-sb-name {
+  width: 185px; min-width: 185px;
+  font-family: var(--mono); font-size: 12px;
+  color: var(--text-dim);
+}
+.qz-sb-bar {
+  flex: 1;
+  display: flex;
+  height: 8px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--ink-3);
+  border: 1px solid var(--line-soft);
+}
+.qz-sb-r { background: var(--green); opacity: 0.8; }
+.qz-sb-w { background: var(--red); opacity: 0.55; }
+.qz-sb-empty { width: 100%; background: transparent; }
+.qz-sb-txt {
+  width: 170px; min-width: 170px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ---------- quiz screen ---------- */
+.qz-head { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.qz-progress {
+  font-family: var(--display); font-size: 15px; font-weight: 700;
+  color: var(--amber);
+}
+.qz-cat {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--cat-color, var(--amber));
+  background: var(--ink-3); /* fallback */
+  background: color-mix(in srgb, var(--cat-color, #e6b450) 12%, transparent);
+  border: 1px solid var(--line); /* fallback */
+  border: 1px solid color-mix(in srgb, var(--cat-color, #e6b450) 40%, transparent);
+  border-radius: 14px;
+  padding: 2px 11px;
+}
+.qz-type {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--text-faint);
+}
+/* ---------- exam-sim countdown pill (top-right of the header) ---------- */
+.qz-timer {
+  margin-left: auto;
+  font-family: var(--mono); font-size: 14px; font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border: 1px solid rgba(230, 180, 80, 0.45);
+  border-radius: 14px;
+  padding: 3px 13px;
+  font-variant-numeric: tabular-nums;
+}
+.qz-timer.danger {
+  color: var(--red);
+  background: var(--red-soft);
+  border-color: rgba(240, 113, 120, 0.55);
+  animation: qz-pulse 1s ease-in-out infinite;
+}
+@keyframes qz-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.qz-pbar {
+  height: 4px;
+  margin: 10px 0 16px;
+  border-radius: 3px;
+  background: var(--ink-3);
+  overflow: hidden;
+}
+.qz-pbar span { display: block; height: 100%; background: var(--amber); transition: width .25s; }
+
+.qz-card {
+  background: var(--ink-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+}
+.qz-q { font-size: 16.5px; font-weight: 600; line-height: 1.5; color: var(--text); }
+.qz-codeblock { margin: 14px 0 4px; }
+
+/* ---------- choices ---------- */
+.qz-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.qz-choice {
+  display: flex; gap: 12px; align-items: baseline;
+  width: 100%;
+  text-align: left;
+  font-family: var(--body); font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--ink-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+button.qz-choice:hover { border-color: var(--amber); background: var(--ink-3); }
+.qz-choice.done { cursor: default; }
+.qz-choice.right {
+  border-color: rgba(127, 217, 98, 0.65);
+  background: var(--green-soft);
+}
+.qz-choice.right .qz-letter { color: var(--green); border-color: var(--green); }
+.qz-choice.wrong {
+  border-color: rgba(240, 113, 120, 0.65);
+  background: var(--red-soft);
+}
+.qz-choice.wrong .qz-letter { color: var(--red); border-color: var(--red); }
+.qz-choice.dim { opacity: 0.45; }
+.qz-letter {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+
+/* ---------- explanation / verdict ---------- */
+.qz-explain {
+  margin-top: 16px;
+  padding: 13px 16px;
+  border-radius: var(--radius);
+  border: 1px solid;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.qz-explain.right { background: var(--green-soft); border-color: rgba(127, 217, 98, 0.35); }
+.qz-explain.wrong { background: var(--red-soft); border-color: rgba(240, 113, 120, 0.35); }
+.qz-explain.neutral { background: var(--cyan-soft); border-color: rgba(57, 186, 230, 0.35); }
+.qz-verdict {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.qz-explain.right .qz-verdict { color: var(--green); }
+.qz-explain.wrong .qz-verdict { color: var(--red); }
+.qz-explain-txt { color: var(--text); }
+
+.qz-model {
+  margin-top: 16px;
+  padding: 13px 16px;
+  border-radius: var(--radius);
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.qz-model-label {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--cyan);
+  margin-bottom: 5px;
+}
+
+/* ---------- action buttons ---------- */
+.qz-actions { display: flex; gap: 10px; margin-top: 16px; }
+.qz-actions.center { justify-content: center; margin-top: 24px; }
+.qz-btn {
+  font-family: var(--mono); font-size: 13px;
+  border-radius: 8px;
+  padding: 8px 20px;
+  cursor: pointer;
+  background: var(--ink-2);
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+  transition: all .12s;
+}
+.qz-btn:hover { color: var(--text); border-color: var(--text-dim); }
+.qz-btn.primary { color: var(--amber); border-color: rgba(230, 180, 80, 0.5); background: var(--amber-soft); }
+.qz-btn.primary:hover { border-color: var(--amber); }
+.qz-btn.good { color: var(--green); border-color: rgba(127, 217, 98, 0.5); background: var(--green-soft); }
+.qz-btn.good:hover { border-color: var(--green); }
+.qz-btn.bad { color: var(--red); border-color: rgba(240, 113, 120, 0.5); background: var(--red-soft); }
+.qz-btn.bad:hover { border-color: var(--red); }
+
+.qz-quit {
+  margin-top: 14px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px;
+}
+.qz-quit a {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.qz-quit a:hover { color: var(--amber); }
+.qz-hint {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-faint);
+}
+.qz-hint b { color: var(--text-dim); font-weight: 700; }
+
+/* small inline keycap shown on action buttons */
+.qz-key {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-left: 6px;
+}
+
+/* ---------- end screen ---------- */
+.qz-end { margin-top: 18px; }
+.qz-score {
+  font-family: var(--display);
+  font-size: 56px; font-weight: 700;
+  color: var(--amber);
+  line-height: 1.1;
+}
+.qz-score-of { font-size: 26px; color: var(--text-faint); font-weight: 400; }
+.qz-score-pct {
+  font-family: var(--mono); font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+@media (max-width: 760px) {
+  .qz-sb-name { width: 130px; min-width: 130px; }
+  .qz-sb-txt { width: auto; min-width: 0; }
+  .qz-mode { min-width: 0; flex: 1; }
+}

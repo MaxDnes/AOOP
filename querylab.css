@@ -1,0 +1,435 @@
+/* ============================================================
+   QUERY LAB · styles (namespaced .ql)
+   Reuses the app theme variables from styles.css :root.
+   Accent: GREEN (constructive / codegen) — testlab owns cyan,
+   the analyzer owns red/amber. Code-output chrome mirrors the
+   test lab's card so the two solvers feel like one instrument.
+   ============================================================ */
+
+.ql { display: flex; gap: 18px; align-items: flex-start; margin-top: 14px; }
+.ql-left { flex: 1.0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.ql-right { flex: 1.18; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+
+/* ---------- header: title + subtitle + toolbar (Designer layout) ---------- */
+.ql-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 18px; flex-wrap: wrap;
+}
+.ql-head-text { min-width: 0; }
+.ql-sub {
+  color: var(--text-dim);
+  font-size: 13px; line-height: 1.6;
+  max-width: 720px;
+  margin: 4px 0 0;
+}
+.ql-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding-top: 4px;
+}
+.ql-tb-sep {
+  width: 1px; align-self: stretch; min-height: 18px;
+  background: var(--line); margin: 0 4px;
+}
+.ql-btn {
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--text-dim);
+  background: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 11px;
+  cursor: pointer;
+  transition: all .12s;
+  white-space: nowrap;
+}
+.ql-btn:hover { color: var(--green); border-color: var(--green); }
+.ql-btn:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+.ql-msg {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-faint);
+  margin-left: 6px;
+  align-self: center;
+}
+
+/* ---------- JSON paste area ---------- */
+.ql-json {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #0a0d13;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  padding: 12px 16px;
+  tab-size: 2;
+  white-space: pre;
+  outline: none;
+}
+.ql-json:focus { border-color: var(--green); }
+.ql-json::placeholder { color: var(--text-faint); }
+
+/* ---------- inferred model card ---------- */
+.ql-models {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--ink-1);
+  overflow: hidden;
+}
+.ql-models-head {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  color: var(--text-dim);
+  background: var(--ink-2);
+  border-bottom: 1px solid var(--line-soft);
+  padding: 7px 12px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.ql-class { padding: 7px 12px 9px; }
+.ql-class + .ql-class { border-top: 1px solid var(--line-soft); }
+.ql-class-name {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  color: var(--amber);
+  letter-spacing: 0.3px;
+  padding: 2px 0 5px;
+}
+.ql-field {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 2px 0 2px 10px;
+}
+.ql-f-name {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--text);
+  min-width: 120px;
+}
+.ql-f-type {
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--green);
+}
+.ql-f-json {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--text-faint);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.ql-f-null {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.ql-f-ovr {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-dim);
+  background: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+.ql-f-ovr:hover { border-color: var(--green); }
+
+/* ---------- parse error / empty ---------- */
+.ql-parse-err {
+  padding: 14px 16px;
+  border: 1px solid rgba(240,113,120,0.4);
+  border-left: 3px solid var(--red);
+  border-radius: var(--radius);
+  background: var(--red-soft);
+  color: var(--text-dim);
+  font-family: var(--mono); font-size: 12.5px;
+  line-height: 1.6;
+}
+.ql-parse-err b { color: var(--red); }
+.ql-empty {
+  padding: 22px 18px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--text-faint);
+  font-size: 13px;
+  text-align: center;
+  line-height: 1.7;
+}
+
+/* ---------- "start here" empty state (1-2-3 hint + presets) ---------- */
+.ql-start { text-align: left; padding: 18px 20px; }
+.ql-start-title {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--green);
+  margin-bottom: 8px;
+}
+.ql-start-steps {
+  margin: 0 0 12px; padding-left: 20px;
+  color: var(--text-dim); font-size: 12.5px; line-height: 1.8;
+}
+.ql-start-steps b { color: var(--text); }
+.ql-start-or {
+  color: var(--text-faint); font-size: 12px; margin-bottom: 8px;
+}
+.ql-start-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.ql-start-note {
+  color: var(--text-faint); font-size: 11.5px; font-style: italic;
+  border-top: 1px solid var(--line-soft); padding-top: 10px;
+}
+
+/* ---------- query rows ---------- */
+.ql-rows-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.ql-add {
+  background: none;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--text-faint);
+  font-family: var(--mono); font-size: 12px;
+  padding: 4px 12px; cursor: pointer;
+}
+.ql-add:hover { color: var(--green); border-color: var(--green); }
+
+.ql-rows { display: flex; flex-direction: column; gap: 9px; }
+
+.ql-row {
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--green);
+  border-radius: 8px;
+  background: var(--ink-2);
+  overflow: hidden;
+}
+.ql-row-top {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 10px;
+  background: var(--ink-1);
+  border-bottom: 1px solid var(--line-soft);
+}
+.ql-row-icon {
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  color: var(--green);
+  width: 18px; text-align: center;
+}
+.ql-shape { flex: 0 0 auto; }
+.ql-name {
+  flex: 1 1 80px; min-width: 60px;
+  background: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono); font-size: 11.5px;
+  padding: 3px 8px;
+  outline: none;
+}
+.ql-name:focus { border-color: var(--green); }
+.ql-row-ctl { display: flex; gap: 2px; margin-left: auto; }
+.ql-mini {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text-faint);
+  font-size: 10px;
+  padding: 2px 6px; cursor: pointer;
+}
+.ql-mini:hover { color: var(--green); border-color: var(--green); }
+.ql-mini.ql-x:hover { color: var(--red); border-color: var(--red); }
+
+.ql-row-body {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 8px 10px;
+}
+.ql-row-foot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 6px 10px;
+  background: var(--ink-1);
+  border-top: 1px solid var(--line-soft);
+}
+
+/* selects / inputs inside a row */
+.ql-sel, .ql-val, .ql-num, .ql-key {
+  background: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-family: var(--mono); font-size: 11.5px;
+  padding: 3px 8px;
+  outline: none;
+  cursor: pointer;
+}
+.ql-val, .ql-key, .ql-num { cursor: text; }
+.ql-sel:hover, .ql-val:focus, .ql-num:focus, .ql-key:focus { border-color: var(--green); }
+.ql-val { flex: 1 1 110px; min-width: 80px; }
+.ql-key { flex: 1 1 140px; min-width: 100px; color: var(--green); }
+.ql-num { width: 64px; }
+
+.ql-cb {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer; user-select: none;
+}
+.ql-cb input { accent-color: var(--green); cursor: pointer; margin: 0; }
+
+/* multi-field select chips (select-fields shape) */
+.ql-multi { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.ql-chip-cb {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 2px 9px;
+  cursor: pointer; user-select: none;
+}
+.ql-chip-cb.on { color: var(--green); border-color: var(--green); background: var(--green-soft); }
+.ql-chip-cb input { accent-color: var(--green); cursor: pointer; margin: 0; }
+
+/* ---------- output file options ---------- */
+.ql-opts {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--ink-1);
+  padding: 9px 12px;
+}
+.ql-opt-row { display: flex; flex-wrap: wrap; gap: 14px; }
+.ql-opt-row label {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-faint);
+}
+.ql-tin {
+  background: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono); font-size: 11.5px;
+  padding: 3px 8px;
+  outline: none;
+  width: 200px;
+}
+.ql-tin:focus { border-color: var(--green); }
+
+/* ---------- generated code card (mirrors the test lab chrome) ---------- */
+.ql-card {
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--green);
+  border-radius: 8px;
+  background: var(--ink-1);
+  overflow: hidden;
+}
+.ql-card-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 13px;
+  background: var(--ink-2);
+  border-bottom: 1px solid var(--line-soft);
+}
+.ql-file {
+  font-family: var(--mono); font-size: 12.5px; font-weight: 700;
+  color: var(--amber);
+}
+
+/* ---------- card action buttons (Copy all + Export project) ---------- */
+.ql-card-actions {
+  margin-left: auto;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+}
+.ql-copybtn {
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--text-dim);
+  background: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: all .12s;
+  white-space: nowrap;
+}
+.ql-copybtn:hover { color: var(--amber); border-color: var(--amber); }
+.ql-copybtn:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+.ql-copybtn.done { color: var(--green); border-color: var(--green); }
+/* "Copy all" is the visually primary copy action (amber-tinted) */
+.ql-copy-primary {
+  color: var(--amber);
+  border-color: rgba(230, 180, 80, 0.45);
+  background: var(--amber-soft);
+}
+.ql-copy-primary:hover { border-color: var(--amber); }
+/* Export project is the success action (green-tinted) */
+.ql-export {
+  color: var(--green);
+  border-color: rgba(127, 217, 98, 0.45);
+  background: var(--green-soft);
+}
+.ql-export:hover { color: var(--green); border-color: var(--green); }
+.ql-export:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+.ql-export.done { color: var(--green); border-color: var(--green); }
+/* Download submission files: the final-deliverable primary action (amber, the
+   exam's "this is what you hand in" accent) — same look across all three tools. */
+.ql-submit {
+  color: var(--amber);
+  border-color: rgba(230, 180, 80, 0.55);
+  background: var(--amber-soft);
+  font-weight: 700;
+}
+.ql-submit:hover { color: var(--amber); border-color: var(--amber); }
+.ql-submit:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+.ql-submit.done { color: var(--green); border-color: var(--green); }
+/* hint line under the generated code: the professor's flat-folder rule */
+.ql-submit-hint {
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--text-faint);
+  padding: 6px 16px 9px;
+  background: var(--ink-2);
+  border-top: 1px solid var(--line-soft);
+}
+.ql-proj-name {
+  background: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--green);
+  font-family: var(--mono); font-size: 11.5px;
+  padding: 3px 8px;
+  width: 130px;
+  outline: none;
+}
+.ql-proj-name:focus { border-color: var(--green); }
+.ql-code {
+  margin: 0;
+  padding: 12px 16px;
+  background: #0a0d13;
+  font-family: var(--mono); font-size: 12.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text);
+  max-height: 620px;
+  overflow-y: auto;
+}
+
+/* ---------- visible focus styles for every interactive control ---------- */
+.ql-json:focus-visible,
+.ql-sel:focus-visible, .ql-val:focus-visible, .ql-num:focus-visible,
+.ql-key:focus-visible, .ql-name:focus-visible, .ql-tin:focus-visible,
+.ql-proj-name:focus-visible, .ql-f-ovr:focus-visible {
+  outline: 2px solid var(--green); outline-offset: 1px;
+}
+.ql-mini:focus-visible, .ql-add:focus-visible,
+.ql-cb input:focus-visible, .ql-chip-cb input:focus-visible {
+  outline: 2px solid var(--green); outline-offset: 1px;
+}
+
+/* ---------- panes scroll independently, no horizontal bleed ---------- */
+.ql-left, .ql-right { max-width: 100%; }
+.ql-models { max-height: 460px; overflow-y: auto; }
+
+/* ---------- narrow screens (1280px-safe down to ~900px) ---------- */
+@media (max-width: 1100px) {
+  .ql { flex-direction: column; }
+  .ql-left, .ql-right { width: 100%; }
+  .ql-head { flex-direction: column; }
+  .ql-toolbar { padding-top: 8px; }
+}

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AOP Exam Companion · Avalonia / SOLID / Testing</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="designer.css">
+<link rel="stylesheet" href="analyzer.css">
+<link rel="stylesheet" href="testlab.css">
+<link rel="stylesheet" href="querylab.css">
+<link rel="stylesheet" href="asynclab.css">
+<link rel="stylesheet" href="guide.css">
+<link rel="stylesheet" href="quiz.css">
+</head>
+<body>
+  <div class="frame">
+
+    <aside class="sidebar" id="sidebar">
+      <div class="brand" onclick="go('home')" title="Home (H)">
+        <div class="brand-mark">AOP</div>
+        <div class="brand-text">
+          <span class="brand-title">EXAM COMPANION</span>
+          <span class="brand-sub">Avalonia · SOLID · Testing · F26</span>
+        </div>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="sidebar-foot">
+        <span class="kbd">/</span> search &nbsp; <span class="kbd">H</span> home &nbsp; <span class="kbd">←</span><span class="kbd">→</span> prev/next
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="burger" id="burger" title="Toggle sidebar">☰</button>
+        <div class="searchwrap">
+          <span class="search-icon">⌕</span>
+          <input id="search" type="text" autocomplete="off" spellcheck="false"
+                 placeholder="Search everything… (binding, lock, GroupBy, RelayCommand, deadlock, xunit…)">
+          <span class="search-hint kbd">/</span>
+        </div>
+        <button class="pinbtn" id="pinbtn" title="Pin / unpin this topic">☆</button>
+      </header>
+      <div class="content" id="content"></div>
+    </main>
+
+  </div>
+
+  <div class="toast" id="toast">Copied ✓</div>
+
+  <script>window.TOPICS = [];</script>
+  <script src="data/lab.js"></script>
+  <script src="data/builder.js"></script>
+  <!-- projzip-core defines window.PROJZIP (the .zip writer + .NET project
+       scaffolds). Load it BEFORE every solver tool so their "Export project
+       (.zip)" buttons see it; tools degrade gracefully (button hidden) if absent. -->
+  <script src="data/projzip-core.js"></script>
+  <script src="data/designer-core.js"></script>
+  <script src="data/designer.js"></script>
+  <script src="data/analyzer-core.js"></script>
+  <script src="data/analyzer.js"></script>
+  <script src="data/exam-fixtures.js"></script>
+  <script src="data/testlab-core.js"></script>
+  <script src="data/testlab.js"></script>
+  <script src="data/quiz-bank.js"></script>
+  <script src="data/quiz.js"></script>
+  <script src="data/querylab-core.js"></script>
+  <script src="data/querylab.js"></script>
+  <script src="data/asynclab-core.js"></script>
+  <script src="data/asynclab.js"></script>
+  <!-- guide tool: orientation tab, UI-only (no core file), defines window.GUIDE -->
+  <script src="data/guide.js"></script>
+  <script src="data/bootcamp.js"></script>
+  <script src="data/playbooks.js"></script>
+  <script src="data/solutions-summer.js"></script>
+  <script src="data/solutions-reexam.js"></script>
+  <script src="data/design.js"></script>
+  <script src="data/oop.js"></script>
+  <script src="data/csharp.js"></script>
+  <script src="data/solid.js"></script>
+  <script src="data/avalonia.js"></script>
+  <script src="data/mvvm.js"></script>
+  <script src="data/collections.js"></script>
+  <script src="data/linq.js"></script>
+  <script src="data/threading.js"></script>
+  <script src="data/testing.js"></script>
+  <script src="data/algorithms.js"></script>
+  <script src="data/exams.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

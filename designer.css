@@ -1,0 +1,696 @@
+/* ============================================================
+   AOP EXAM COMPANION · Visual Designer page
+   Namespaced under .dsg / #dsg-*. Reuses the app theme
+   variables from styles.css (no new fonts, no new palette).
+   ============================================================ */
+
+/* ---------------- toolbar ---------------- */
+.dsg-toolbar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  margin: 4px 0 16px;
+}
+.dsg-btn {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--text-dim);
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 13px;
+  cursor: pointer;
+  transition: color .12s, border-color .12s;
+}
+.dsg-btn:hover { color: var(--amber); border-color: var(--amber); }
+.dsg-select {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--text);
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 10px;
+  max-width: 230px;
+}
+.dsg-select:focus { outline: none; border-color: var(--amber); }
+.dsg-msg {
+  font-family: var(--mono); font-size: 12px;
+  color: var(--amber);
+  margin-left: 6px;
+  opacity: 0;
+  transition: opacity .18s;
+}
+.dsg-msg.show { opacity: 1; }
+
+/* ---------------- three-pane layout ---------------- */
+.dsg { display: flex; gap: 16px; align-items: flex-start; margin-top: 6px; }
+
+/* ---------------- palette (left) ---------------- */
+.dsg-palette {
+  width: 198px; min-width: 198px;
+  position: sticky; top: 8px;
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.dsg-pal-label {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 14px 0 6px;
+}
+.dsg-palette .dsg-pal-label:first-child { margin-top: 0; }
+.dsg-pal-grid { display: flex; flex-direction: column; gap: 4px; }
+.dsg-tool {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 9px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--ink-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  cursor: grab;
+  user-select: none;
+  transition: color .12s, border-color .12s;
+}
+.dsg-tool:hover { color: var(--text); border-color: var(--cyan); }
+.dsg-tool:active { cursor: grabbing; }
+.dsg-tool-ic { width: 18px; text-align: center; color: var(--cyan); font-size: 13px; }
+
+.dsg-colors { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.dsg-swatch {
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  cursor: grab;
+}
+.dsg-swatch:hover { outline: 2px solid var(--amber); outline-offset: 1px; }
+.dsg-swatch.tr,
+.dsg-mini-sw.tr {
+  background: repeating-conic-gradient(#3a4258 0% 25%, #1a2030 0% 50%) 50% / 10px 10px;
+}
+.dsg-pal-hint {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  line-height: 1.45;
+  margin-top: 8px;
+}
+
+/* ---------------- stage (center) ---------------- */
+.dsg-stage { flex: 1; min-width: 0; }
+.dsg-window {
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #f6f7f9;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+.dsg-win-chrome {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px;
+  background: var(--ink-2);
+  border-bottom: 1px solid var(--line-soft);
+  cursor: pointer;
+}
+.dsg-win-chrome:hover .dsg-win-title { color: var(--amber); }
+.dsg-win-title {
+  margin-left: 8px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-dim);
+}
+.dsg-win-body {
+  position: relative;
+  display: flex; flex-direction: column;
+  background: #f6f7f9;
+  color: #1b1b1b;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: auto;
+}
+.dsg-win-body > .pv { flex: 1 1 auto; }
+.dsg-empty {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: 40px 12px;
+  color: #9aa3b2;
+  font-family: var(--mono); font-size: 13px;
+  text-align: center;
+}
+.dsg-empty span { font-size: 11px; color: #b9c0cc; }
+
+/* breadcrumb of the selected node's ancestry */
+.dsg-crumbs {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+  min-height: 24px;
+  margin-top: 10px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-faint);
+}
+.dsg-crumb-chip {
+  color: var(--text-dim);
+  background: var(--ink-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  padding: 1px 9px;
+  cursor: pointer;
+}
+.dsg-crumb-chip:hover { color: var(--cyan); border-color: var(--cyan); }
+.dsg-crumb-chip.on { color: var(--amber); border-color: var(--amber); background: var(--amber-soft); }
+.dsg-crumb-sep { color: var(--text-faint); }
+
+/* ---------------- preview nodes ---------------- */
+.dsg .pv { min-width: 14px; min-height: 14px; cursor: pointer; }
+.dsg .pv:hover { outline: 1px dotted rgba(21, 101, 192, 0.4); outline-offset: -1px; }
+.dsg .pv.sel {
+  outline: 2px solid #1565c0;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 4px rgba(21, 101, 192, 0.14);
+}
+.dsg .pv.drop-ok,
+.dsg .dsg-win-body.drop-ok { outline: 2px dashed var(--amber, #e6b450); outline-offset: -2px; }
+
+/* containers get a faint dashed footprint so empty ones stay visible */
+.dsg .pv-StackPanel, .dsg .pv-Grid, .dsg .pv-DockPanel, .dsg .pv-WrapPanel,
+.dsg .pv-Canvas, .dsg .pv-ScrollViewer {
+  padding: 6px;
+  border: 1px dashed rgba(27, 27, 27, 0.16);
+  border-radius: 4px;
+  min-height: 30px;
+}
+.dsg .pv-Border { border-radius: 4px; min-height: 24px; }
+.pv-dockmid { display: flex; flex: 1 1 auto; align-items: stretch; min-height: 24px; }
+
+/* controls — light Fluent-ish placeholders */
+.dsg .pv-Button {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  background: #e9e9ec;
+  border: 1px solid #c5c8cf;
+  border-radius: 5px;
+  padding: 6px 14px;
+  font-weight: 600;
+}
+.dsg .pv-TextBox, .dsg .pv-ComboBox {
+  display: flex; align-items: center; gap: 6px;
+  background: #ffffff;
+  border: 1px solid #c5c8cf;
+  border-bottom-color: #8a8f99;
+  border-radius: 5px;
+  padding: 6px 10px;
+  min-height: 30px;
+}
+.pv-caret { margin-left: auto; color: #6a7180; font-size: 11px; }
+.dsg .pv-TextBlock { padding: 2px; }
+.dsg .pv-CheckBox, .dsg .pv-RadioButton {
+  display: flex; align-items: center; gap: 7px;
+  padding: 3px 2px;
+}
+.pv-glyph { font-size: 15px; color: #1565c0; line-height: 1; }
+.dsg .pv-Slider { display: flex; align-items: center; min-height: 26px; padding: 4px 8px; }
+.pv-track {
+  position: relative; flex: 1;
+  height: 4px; min-width: 60px;
+  background: #c5c8cf;
+  border-radius: 2px;
+}
+.pv-thumb {
+  position: absolute; top: 50%;
+  width: 14px; height: 14px;
+  background: #1565c0;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.dsg .pv-ListBox {
+  display: flex; flex-direction: column; gap: 3px;
+  background: #ffffff;
+  border: 1px solid #c5c8cf;
+  border-radius: 5px;
+  padding: 4px;
+  min-height: 60px;
+}
+.pv-lb-head { padding: 2px 4px; }
+.pv-ghost { height: 16px; border-radius: 3px; background: #eef0f3; }
+/* typed-model sample rows: realistic preview data instead of blank strips */
+.pv-sample-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 5px;
+  border-radius: 3px;
+  background: #f1f3f6;
+  font-size: 11px; color: #2b2f38;
+}
+.pv-sample-row + .pv-sample-row { margin-top: 3px; }
+.pv-sample-row .pv-swatch {
+  display: inline-block; width: 14px; height: 14px;
+  border-radius: 3px; border: 1px solid rgba(0, 0, 0, 0.15);
+  flex: none;
+}
+.pv-cell-num { color: #1565c0; font-variant-numeric: tabular-nums; }
+.pv-cell-bool { color: #2e7d32; }
+.pv-cell-str { color: #2b2f38; }
+.dsg .pv-ProgressBar {
+  position: relative;
+  height: 12px; min-width: 80px;
+  background: #e2e4e9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.pv-fillbar { position: absolute; top: 0; bottom: 0; left: 0; background: #1565c0; border-radius: 6px; }
+.dsg .pv-Image {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  background: #eef0f3;
+  border: 1px dashed #b9c0cc;
+  border-radius: 4px;
+  min-height: 50px;
+  color: #8a8f99;
+}
+.dsg .pv-Ellipse { border-radius: 50%; }
+.dsg .pv-Line, .dsg .pv-Polygon, .dsg .pv-Path {
+  display: inline-block;
+  line-height: 0;
+  align-self: flex-start;
+}
+.pv-dim { color: #9aa3b2; }
+.dsg .pv-unknown { padding: 4px 8px; color: #b0413e; font-family: var(--mono); font-size: 11px; }
+
+/* the ⚡ binding chip shown on bound elements */
+.pv-bind {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--mono); font-size: 10px; line-height: 16px;
+  color: #8a6d1f;
+  background: #fff6e0;
+  border: 1px solid #e6c36a;
+  border-radius: 9px;
+  padding: 0 7px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* ---------------- inspector (right) ---------------- */
+.dsg-inspector {
+  width: 282px; min-width: 282px;
+  position: sticky; top: 8px;
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+  background: var(--ink-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.dsg-insp-head {
+  display: flex; align-items: center; gap: 8px;
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.dsg-insp-type { font-family: var(--mono); font-weight: 700; font-size: 14px; color: var(--cyan); }
+.dsg-insp-id { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+.dsg-insp-actions { margin-left: auto; display: flex; gap: 4px; }
+.dsg-mini {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-dim);
+  background: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.dsg-mini:hover { color: var(--amber); border-color: var(--amber); }
+.dsg-mini.dsg-del:hover { color: var(--red); border-color: var(--red); }
+.dsg-insp-sec {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 1.8px; text-transform: uppercase;
+  color: var(--text-faint);
+  margin: 14px 0 4px;
+}
+.dsg-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 7px 0; }
+.dsg-row > label {
+  width: 96px; min-width: 96px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dsg-in {
+  flex: 1; min-width: 60px;
+  font-family: var(--mono); font-size: 12px;
+  color: var(--text);
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+  outline: none;
+}
+.dsg-in:focus { border-color: var(--amber); }
+.dsg-in.invalid { border-color: var(--red); box-shadow: 0 0 0 2px rgba(240, 113, 120, 0.18); }
+.dsg-in.dsg-bind-in {
+  border-color: rgba(230, 180, 80, 0.55);
+  background: var(--amber-soft);
+  color: #ffd98a;
+}
+select.dsg-in { padding: 4px 6px; }
+.dsg-check { width: 15px; height: 15px; accent-color: var(--amber); cursor: pointer; }
+.dsg-zap {
+  font-size: 12px; line-height: 1;
+  color: var(--text-faint);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.dsg-zap:hover { color: var(--amber); border-color: var(--amber); }
+.dsg-zap.on { color: var(--amber); border-color: var(--amber); background: var(--amber-soft); }
+.dsg-zap[disabled] { cursor: default; opacity: 0.85; }
+.dsg-colorrow {
+  width: 100%;
+  display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px;
+  margin-top: 2px;
+}
+.dsg-mini-sw { height: 16px; border-radius: 4px; border: 1px solid var(--line); cursor: pointer; }
+.dsg-mini-sw:hover { outline: 1px solid var(--amber); }
+.dsg-mini-sw.on { outline: 2px solid var(--amber); outline-offset: 1px; }
+
+/* ---------------- output panes ---------------- */
+#dsg-output { margin-top: 22px; }
+.dsg-outgrid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  align-items: start;
+}
+.dsg-outgrid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.dsg-outgrid .codeblock { margin: 0; }
+#dsg-output pre.code { max-height: 460px; overflow: auto; }
+.dsg-hint {
+  margin-top: 10px;
+  font-family: var(--mono); font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ---------------- toolbar extras (undo/redo/export/import) ---------------- */
+.dsg-btn[disabled] {
+  opacity: 0.4;
+  cursor: default;
+  color: var(--text-faint);
+}
+.dsg-btn[disabled]:hover { color: var(--text-faint); border-color: var(--line); }
+.dsg-icbtn { letter-spacing: 0.3px; }
+.dsg-tb-sep {
+  width: 1px; align-self: stretch;
+  margin: 2px 4px;
+  background: var(--line);
+}
+
+/* ---------------- export full project (.zip) ---------------- */
+.dsg-exportproj-wrap {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.dsg-proj-name {
+  flex: none;
+  font-family: var(--mono); font-size: 12px;
+  width: 130px; max-width: 150px;
+  text-transform: none; letter-spacing: 0;
+}
+/* the success action: green tint so it reads as "produce a runnable project" */
+.dsg-btn-export {
+  color: var(--green);
+  border-color: rgba(127, 217, 98, 0.45);
+  background: var(--green-soft);
+}
+.dsg-btn-export:hover {
+  color: var(--green);
+  border-color: var(--green);
+  background: rgba(127, 217, 98, 0.18);
+}
+
+/* ---------------- download submission files (spec 16) ---------------- */
+.dsg-submit-wrap {
+  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;
+}
+/* the final-deliverable action: amber primary so it reads as "this is what you
+   hand in" and stands apart from the green project-zip export */
+.dsg-btn-submit {
+  color: var(--amber);
+  border-color: rgba(230, 180, 80, 0.5);
+  background: rgba(230, 180, 80, 0.1);
+  font-weight: 700;
+}
+.dsg-btn-submit:hover {
+  color: var(--amber);
+  border-color: var(--amber);
+  background: rgba(230, 180, 80, 0.18);
+}
+.dsg-submit-hint {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.3px;
+  padding-left: 2px;
+}
+
+/* ---------------- resize grips on the selected element ---------------- */
+.dsg-grip {
+  position: absolute;
+  width: 8px; height: 8px;
+  background: var(--cyan);
+  border: 1px solid #0b0e14;
+  border-radius: 2px;
+  z-index: 30;
+}
+.dsg-grip:hover { background: var(--amber); }
+.dsg-grip-nw { top: -5px; left: -5px; cursor: nwse-resize; }
+.dsg-grip-n  { top: -5px; left: 50%; margin-left: -4px; cursor: ns-resize; }
+.dsg-grip-ne { top: -5px; right: -5px; cursor: nesw-resize; }
+.dsg-grip-e  { top: 50%; right: -5px; margin-top: -4px; cursor: ew-resize; }
+.dsg-grip-se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.dsg-grip-s  { bottom: -5px; left: 50%; margin-left: -4px; cursor: ns-resize; }
+.dsg-grip-sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.dsg-grip-w  { top: 50%; left: -5px; margin-top: -4px; cursor: ew-resize; }
+/* the selected node hosts the grips; it must be a positioning context */
+.dsg .pv.sel { position: relative; }
+.dsg .pv.sel.pv-oncanvas { position: absolute; }
+/* Canvas children show the move cursor */
+.dsg .pv-oncanvas { cursor: move; }
+body.dsg-grabbing, body.dsg-grabbing * { cursor: move !important; }
+
+/* live coordinate / size badge near the cursor */
+.dsg-stage { position: relative; }
+.dsg-coordbadge {
+  position: absolute;
+  pointer-events: none;
+  z-index: 50;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-faint);
+  background: var(--ink-0);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 7px;
+  opacity: 0;
+  transition: opacity .1s;
+}
+.dsg-coordbadge.show { opacity: 1; }
+
+/* ---------------- inspector: color picker + typed-model editor ---------------- */
+.dsg-color-text { flex: 1 1 auto; }
+.dsg-color-pick {
+  width: 28px; height: 28px;
+  padding: 0; flex: 0 0 auto;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.dsg-insp-sub {
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 1px; text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 10px 0 4px;
+}
+.dsg-insp-note {
+  font-size: 10.5px; line-height: 1.4;
+  color: var(--text-faint);
+  margin: 2px 0 6px;
+}
+.dsg-row-check { justify-content: flex-start; }
+.dsg-field-row { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+.dsg-field-name { flex: 1 1 auto; min-width: 50px; }
+.dsg-field-type { flex: 0 0 84px; }
+.dsg-addfield { margin-top: 6px; }
+
+/* ---------------- previews for new catalog types ---------------- */
+.dsg .pv-ItemsControl {
+  display: flex; flex-direction: column; gap: 3px;
+  border: 1px dashed rgba(27, 27, 27, 0.18);
+  border-radius: 4px;
+  padding: 4px;
+  min-height: 40px;
+}
+.pv-typed {
+  display: inline-block;
+  font-family: var(--mono); font-size: 9px;
+  color: #4d6a2e; background: #e7f2db;
+  border: 1px solid #b6d49a; border-radius: 8px;
+  padding: 0 6px; margin-left: 4px;
+}
+.dsg .pv-ToggleSwitch { display: flex; align-items: center; gap: 8px; padding: 3px 2px; }
+.pv-toggle {
+  position: relative;
+  width: 34px; height: 18px;
+  background: #c5c8cf; border-radius: 9px;
+  transition: background .12s;
+}
+.pv-toggle.on { background: #1565c0; }
+.pv-toggle-knob {
+  position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  background: #fff; border-radius: 50%;
+  transition: left .12s;
+}
+.pv-toggle.on .pv-toggle-knob { left: 18px; }
+.dsg .pv-NumericUpDown {
+  display: flex; align-items: center; gap: 6px;
+  background: #fff; border: 1px solid #c5c8cf; border-radius: 5px;
+  padding: 5px 8px; min-height: 30px;
+}
+.pv-num-val { flex: 1; }
+.pv-num-spin { color: #6a7180; font-size: 10px; letter-spacing: -2px; }
+.dsg .pv-Separator {
+  height: 1px; min-height: 1px;
+  background: #c5c8cf;
+  margin: 6px 0;
+  align-self: stretch;
+}
+.dsg .pv-Expander {
+  border: 1px solid #d4d7dd; border-radius: 5px;
+  background: #fbfbfc;
+  min-height: 30px;
+}
+.pv-exp-head {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 10px;
+  font-weight: 600;
+  border-bottom: 1px solid #ececef;
+}
+.pv-exp-arrow { color: #6a7180; font-size: 11px; }
+.pv-exp-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.dsg .pv-TabControl {
+  display: flex; flex-direction: column;
+  border: 1px solid #d4d7dd; border-radius: 5px;
+  min-height: 50px;
+}
+.pv-tabstrip {
+  display: flex; gap: 2px;
+  background: #eef0f3;
+  border-bottom: 1px solid #d4d7dd;
+  padding: 4px 4px 0;
+}
+.pv-tab {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: #5a6577;
+  background: #f6f7f9;
+  border: 1px solid #d4d7dd; border-bottom: none;
+  border-radius: 5px 5px 0 0;
+}
+.pv-tab.on { color: #1565c0; background: #fff; font-weight: 600; }
+.pv-tabpage { padding: 10px; display: flex; flex-direction: column; gap: 4px; min-height: 24px; }
+.dsg .pv-TabItem { display: flex; flex-direction: column; gap: 4px; }
+
+/* ---------------- command recipe dropdown (inspector) ---------------- */
+.dsg-recipe-row { margin-top: 2px; }
+.dsg-recipe-row > label {
+  color: var(--amber);
+  font-style: italic;
+}
+.dsg-recipe-sel {
+  border-color: rgba(230, 180, 80, 0.45);
+  color: var(--text);
+}
+.dsg-recipe-sel:focus { border-color: var(--amber); }
+
+/* ---------------- timer panel (output header card) ---------------- */
+.dsg-timer-card {
+  background: var(--ink-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+.dsg-timer-card.on { border-color: rgba(230, 180, 80, 0.5); }
+.dsg-timer-head {
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer;
+  font-family: var(--mono);
+}
+.dsg-timer-head input[type="checkbox"] { accent-color: var(--amber); width: 15px; height: 15px; cursor: pointer; }
+.dsg-timer-title { font-size: 13px; font-weight: 700; color: var(--amber); letter-spacing: 0.5px; }
+.dsg-timer-note { font-size: 10.5px; color: var(--text-faint); }
+.dsg-timer-body {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  margin-top: 10px;
+}
+.dsg-timer-field {
+  display: flex; flex-direction: column; gap: 3px;
+  font-family: var(--mono); font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: 1px;
+}
+.dsg-timer-field .dsg-in { min-width: 120px; text-transform: none; letter-spacing: 0; }
+.dsg-timer-field input[type="number"].dsg-in { min-width: 90px; }
+
+/* ---------------- reference image (toolbar popover + stage overlay) ---------------- */
+.dsg-ref-wrap { position: relative; display: inline-flex; }
+.dsg-ref-pop {
+  display: none;
+  position: absolute; top: calc(100% + 6px); left: 0;
+  z-index: 60;
+  width: 250px;
+  background: var(--ink-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.dsg-ref-pop.open { display: block; }
+.dsg-ref-pop .dsg-btn { width: 100%; text-align: center; margin-bottom: 8px; }
+.dsg-ref-toggle {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.dsg-ref-toggle input { accent-color: var(--amber); cursor: pointer; }
+.dsg-ref-exp { color: var(--text-faint); font-size: 10px; line-height: 1.4; align-items: flex-start; }
+.dsg-ref-oprow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dsg-ref-oplab { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+.dsg-ref-slider { flex: 1; accent-color: var(--amber); }
+.dsg-ref-opval { font-family: var(--mono); font-size: 10px; color: var(--amber); min-width: 30px; text-align: right; }
+.dsg-ref-remove:hover { color: var(--red); border-color: var(--red); }
+
+/* the stacked stage region holds the overlay (behind) and the live canvas (front) */
+.dsg-win-stack { position: relative; }
+.dsg-ref-layer {
+  position: absolute; inset: 0;
+  z-index: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  pointer-events: none;   /* never intercept drops / clicks */
+  opacity: 0;
+}
+.dsg-ref-layer.on { opacity: 1; }
+.dsg-win-stack > .dsg-win-body { position: relative; z-index: 1; background: transparent; }
+/* when an overlay is active the window body must let it show through */
+.dsg-ref-layer.on + .dsg-win-body { background: transparent; }
+
+/* ---------------- responsive ---------------- */
+@media (max-width: 1500px) {
+  .dsg-outgrid-3 { grid-template-columns: 1fr; }
+}
+@media (max-width: 1240px) {
+  .dsg-outgrid { grid-template-columns: 1fr; }
+}
+@media (max-width: 1100px) {
+  .dsg { flex-direction: column; }
+  .dsg-palette, .dsg-inspector {
+    position: static;
+    width: auto; min-width: 0;
+    max-height: none;
+  }
+  .dsg-pal-grid { flex-direction: row; flex-wrap: wrap; }
+}

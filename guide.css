@@ -1,0 +1,264 @@
+/* ============================================================
+   EXAM GUIDE · styles (namespaced .gd, classes prefixed gd-)
+   Reuses the app theme variables from styles.css :root and the
+   shell classes (content-inner, crumb, topic-title, bp, kbd,
+   homegrid, homecard) where they fit. Accent: amber, the
+   orientation-tab color from the registry (#e6b450).
+   ============================================================ */
+
+.gd { --gd-amber: var(--amber); }
+
+/* crumb label, plain (the shell .crumb b is bold+cyan; we avoid the <b> tag but
+   keep the same cyan accent for visual continuity) */
+.gd-crumb-label { color: var(--cyan); font-weight: 600; }
+
+/* ---------- hero ---------- */
+.gd-hero { max-width: 760px; }
+.gd-plays { margin-top: 18px; }
+
+/* the four play cards reuse .homecard; add the problem badge + icon row */
+.gd-play { position: relative; }
+.gd-play-top {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.gd-play-icon { font-size: 18px; color: var(--cat-color, var(--gd-amber)); line-height: 1; }
+.gd-play-p {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--cat-color, var(--gd-amber));
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 8px;
+}
+
+/* ---------- sections ---------- */
+.gd-section {
+  margin-top: 34px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 22px;
+}
+.gd-kicker {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.gd-h2 {
+  font-family: var(--display);
+  font-size: 21px; font-weight: 700;
+  color: #e8edf7;
+  margin: 0 0 12px;
+  letter-spacing: 0.2px;
+}
+
+/* ---------- copyable code line ---------- */
+.gd-code {
+  display: flex; align-items: stretch; gap: 8px;
+  background: #0a0d13;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px 8px 14px;
+  margin: 10px 0;
+}
+.gd-code-text {
+  flex: 1; min-width: 0;
+  font-family: var(--mono); font-size: 12.5px;
+  color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+  line-height: 1.5;
+  align-self: center;
+}
+.gd-copy {
+  align-self: center;
+  white-space: nowrap;
+}
+
+/* ---------- family identification ---------- */
+.gd-family-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+  margin: 6px 0 12px;
+}
+.gd-fam {
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--cyan);
+  border-radius: 8px;
+  background: var(--ink-2);
+  padding: 13px 16px;
+}
+.gd-fam:nth-child(2) { border-left-color: var(--violet); }
+.gd-fam-h {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  letter-spacing: 1px; text-transform: uppercase;
+  color: var(--cyan);
+  margin-bottom: 8px;
+}
+.gd-fam:nth-child(2) .gd-fam-h { color: var(--violet); }
+.gd-fam-tell {
+  font-size: 12.5px; color: var(--text); line-height: 1.5;
+  margin: 0 0 6px;
+}
+.gd-fam-lean {
+  font-size: 12.5px; color: var(--text-dim); line-height: 1.55;
+  margin: 0;
+}
+.gd-fam-note { color: var(--text-dim); }
+
+/* ---------- the two-button rule ---------- */
+.gd-twobtn {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 4px 0;
+}
+.gd-twobtn-row {
+  display: grid; grid-template-columns: 220px 1fr;
+  gap: 14px; align-items: baseline;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--ink-1);
+  padding: 11px 15px;
+}
+.gd-twobtn-name {
+  font-family: var(--mono); font-size: 12.5px; font-weight: 700;
+}
+.gd-twobtn-job { font-size: 12.5px; color: var(--text-dim); line-height: 1.55; }
+.gd-twobtn-zip { border-left: 3px solid var(--green); }
+.gd-twobtn-zip .gd-twobtn-name { color: var(--green); }
+.gd-twobtn-submit { border-left: 3px solid var(--violet); }
+.gd-twobtn-submit .gd-twobtn-name { color: var(--violet); }
+
+/* ---------- play blocks ---------- */
+.gd-block {
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--cat-color, var(--gd-amber));
+  border-radius: 8px;
+  background: var(--ink-1);
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+.gd-block-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.gd-block-p {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--cat-color, var(--gd-amber));
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 9px;
+}
+.gd-block-title {
+  font-family: var(--mono); font-size: 14px; font-weight: 700;
+  color: var(--text);
+}
+.gd-budget {
+  margin-left: auto;
+  font-family: var(--mono); font-size: 11.5px; font-weight: 700;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border: 1px solid rgba(230, 180, 80, 0.35);
+  border-radius: 5px;
+  padding: 2px 10px;
+}
+.gd-block-tool {
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+.gd-link {
+  color: var(--cyan); cursor: pointer; text-decoration: none;
+  border-bottom: 1px dotted var(--cyan);
+}
+.gd-link:hover { color: var(--amber); border-bottom-color: var(--amber); }
+.gd-block-sep { color: var(--text-faint); }
+
+.gd-steps {
+  margin: 0 0 4px; padding-left: 20px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.gd-steps li { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+
+.gd-deliver {
+  margin-top: 10px;
+  border-top: 1px dashed var(--line-soft);
+  padding-top: 9px;
+  font-size: 12.5px; color: var(--text-dim); line-height: 1.55;
+}
+
+/* ---------- submission ritual ---------- */
+.gd-budget-line { color: var(--text-dim); }
+.gd-budget-line .gd-budget { margin-left: 0; display: inline-block; }
+.gd-folder {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0a0d13;
+  padding: 12px 16px;
+  margin: 10px 0;
+}
+.gd-folder-root {
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  color: var(--amber);
+  margin-bottom: 6px;
+}
+.gd-folder-list { list-style: none; margin: 0; padding: 0 0 0 4px; }
+.gd-folder-file {
+  font-family: var(--mono); font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.7;
+  padding-left: 16px;
+  position: relative;
+}
+.gd-folder-file::before {
+  content: "|-"; position: absolute; left: 0;
+  color: var(--text-faint);
+}
+
+.gd-trap {
+  border: 1px solid rgba(240, 113, 120, 0.4);
+  border-left: 3px solid var(--red);
+  border-radius: 8px;
+  background: var(--red-soft);
+  padding: 12px 15px;
+  margin-top: 14px;
+}
+.gd-trap-h {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 1px; text-transform: uppercase;
+  color: var(--red);
+  margin-bottom: 7px;
+}
+.gd-trap-body { font-size: 12.5px; color: var(--text-dim); line-height: 1.6; margin: 0; }
+
+/* ---------- when things break ---------- */
+.gd-fix { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.gd-fix li {
+  display: grid; grid-template-columns: 260px 1fr; gap: 14px; align-items: baseline;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--ink-2);
+  padding: 10px 14px;
+}
+.gd-fix-sym { font-family: var(--mono); font-size: 12.5px; font-weight: 700; color: var(--amber); }
+.gd-fix-cure { font-size: 12.5px; color: var(--text-dim); line-height: 1.55; }
+.gd-runbook { color: var(--text-dim); }
+
+/* ---------- keys ---------- */
+.gd-cast { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.gd-cast li {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--ink-2);
+  padding: 10px 14px;
+  font-size: 12.5px; color: var(--text-dim); line-height: 1.55;
+}
+
+.gd-keys { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.gd-keys li { font-size: 13px; color: var(--text-dim); }
+
+/* ---------- narrow screens ---------- */
+@media (max-width: 1100px) {
+  .gd-twobtn-row { grid-template-columns: 1fr; gap: 4px; }
+  .gd-fix li { grid-template-columns: 1fr; gap: 4px; }
+}
