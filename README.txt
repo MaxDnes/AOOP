@@ -195,6 +195,13 @@ CONTENT  (the searchable curriculum, in the sidebar categories)
 149 topics across 18 categories, built from all 12 lectures, the course example
 projects, and both 2025 exams (June + August) with complete worked solutions.
 
+Every reference topic (OOP, C#, SOLID, Design Patterns, Avalonia, MVVM, Collections,
+LINQ, Data & Files, Threading, Unit Testing, Algorithms, Design Process) now ends
+with a collapsible "Examples — click to expand" box: concrete, copy-pasteable C# /
+AXAML showing the principle, pattern, or - for small things like List, Dictionary,
+LINQ operators, lambdas, string methods - their methods in action with inline
+// => result comments. ~200 worked snippets in all, kept in data/examples.js.
+
 "3-Day Bootcamp" (top of the sidebar) is the guided study plan: per day a lesson
 dissection, an exam task broken down decision by decision, and practice tasks
 with checkboxes (progress saves automatically) and click-to-reveal solutions.

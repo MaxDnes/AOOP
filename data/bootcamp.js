@@ -10,6 +10,7 @@ tags: ["bootcamp", "plan", "schedule", "3 days", "study plan"],
 related: ["bc-d1-lesson", "bc-d2-lesson", "bc-d3-tasks", "bc-starter-kit"],
 blocks: [
   { p: "You know C#, OOP, LINQ, JSON and some unit testing. That already covers roughly half the exam points. The gap is Avalonia + MVVM Toolkit (30 pts) and async (up to 20 pts). This bootcamp closes the gap by TYPING, not reading: every day has a lesson dissection, an exam task broken down, and tasks with hidden solutions. Checkboxes save automatically." },
+  { tip: "New: every lesson now carries the example itself — a green **▶ Download runnable project (.zip)** button, a live preview of it running, and the full source one click away. No hopping to other tabs or hunting through `AOP_extracted\\` folders: unzip, press F5, see it work." },
   { table: { head: ["Day", "Theme", "Topics in this tab"], rows: [
     ["Day 1", "Avalonia + MVVM (the 30-point gap)", "[[bc-d1-lesson|Lesson: ContactList dissected]] → [[bc-d1-exam|Exam: RectangleUI broken down]] → [[bc-d1-tasks|Tasks]]"],
     ["Day 2", "Testing + async (Problem 3, both variants)", "[[bc-d2-lesson|Lesson: TestableCalculator dissected]] → [[bc-d2-exam|Exam: Counter tests & async]] → [[bc-d2-tasks|Tasks]]"],
@@ -35,7 +36,8 @@ cat: "3-Day Bootcamp",
 tags: ["starter kit", "minimal setup", "template", "ready project", "no setup", "scaffold"],
 related: ["bc-plan", "av-project-structure", "ut-setup"],
 blocks: [
-  { p: "On your Desktop: `AOP Exam Starter Kit\\` with a solution you just open and type into. No Avalonia setup, no template hunting, packages pre-restored (so they sit in your offline NuGet cache)." },
+  { p: "On your Desktop (or download it right here): `AOP Exam Starter Kit\\` with a solution you just open and type into. No Avalonia setup, no template hunting, packages pre-restored (so they sit in your offline NuGet cache)." },
+  { demo: "starter-kit" },
   { table: { head: ["Project", "What it is", "Use for"], rows: [
     ["`ExamApp/`", "Minimal Avalonia MVVM app, exam-identical stack (net9.0, Avalonia 11.2.1, Toolkit 8.2.1), one working binding + command + list already in place", "any UI work, practicing, or as a scratch app"],
     ["`ExamApp.Tests/`", "xUnit + Avalonia.Headless.XUnit wired to ExamApp, TestAppBuilder done, one VM test + one headless test passing", "Problem 3a: copy/adapt instead of creating from scratch"],
@@ -59,7 +61,8 @@ cat: "3-Day Bootcamp",
 tags: ["day 1", "contactlist", "dissection", "mvvm explained", "line by line"],
 related: ["mv-contactlist-full", "bc-d1-exam", "mv-binding-cookbook"],
 blocks: [
-  { p: "The course's flagship MVVM app, taken apart so every line has a WHY. The full unannotated code is at [[mv-contactlist-full|ContactList MVVM]]; run it from `AOP_extracted\\Solution - Contact List MVVM` while reading." },
+  { p: "The course's flagship MVVM app, taken apart so every line has a WHY. The whole runnable app is right here: download it, press F5, then read the annotations below against the live window. (Deeper dive: [[mv-contactlist-full|ContactList MVVM]].)" },
+  { demo: "contactlist" },
   { h: "The data flow (hold this picture)" },
   { steps: [
     "You type in the Name TextBox → TwoWay binding writes `NewContactName` in the VM.",
@@ -144,7 +147,8 @@ cat: "3-Day Bootcamp",
 tags: ["day 1", "rectangleui", "exam breakdown", "decisions", "june p2"],
 related: ["ex-june-p2-rectangle", "bc-d1-tasks", "av-itemscontrols"],
 blocks: [
-  { p: "June 2025 Problem 2 (30 pts), reframed as the sequence of decisions YOU make at the desk. Train the decisions, not the memorized file. Full final code: [[ex-june-p2-rectangle|RectangleUI solution]]." },
+  { p: "June 2025 Problem 2 (30 pts), reframed as the sequence of decisions YOU make at the desk. Train the decisions, not the memorized file. The finished solution is downloadable and runnable right below — build it, watch the 2-second shuffle, then walk the 8 decisions. (Deeper dive: [[ex-june-p2-rectangle|RectangleUI solution]].)" },
+  { demo: "rectangleui" },
   { h: "Decision 1 · Read the starter, list the holes" },
   { p: "The axaml ships with `ItemsSource=\"\"`, hardcoded `Width=\"100\" Height=\"100\" Fill=\"Red\"`, hardcoded `Canvas.Left/Top` setters, an unbound Button and two unbound Sliders. So the work IS: one collection, one command, two slider properties, five item bindings. Listing the holes first = your TODO list." },
   { h: "Decision 2 · What is one rectangle? (the Model)" },
@@ -234,7 +238,8 @@ cat: "3-Day Bootcamp",
 tags: ["day 2", "testablecalculator", "dissection", "testing explained"],
 related: ["ut-testing-viewmodels", "ut-headless", "bc-d2-exam"],
 blocks: [
-  { p: "The unit-testing lecture's flagship: one calculator app + two test projects. Runnable copy: `AOP_extracted\\TestableCalculator`. Here is why each piece exists." },
+  { p: "The unit-testing lecture's flagship: one calculator app + two test projects. Download and run it below (`dotnet run`) — type 0 into operand 2 and watch the **/** button grey itself out — then read why each piece exists." },
+  { demo: "testablecalculator" },
   { h: "The system under test" },
   { code: String.raw`public partial class MainWindowViewModel : ViewModelBase
 {
@@ -312,7 +317,8 @@ blocks: [
     ["Decrement CAN execute after increment", "guard re-evaluation (OnCountChanged → NotifyCanExecuteChanged)", "`Assert.True(...CanExecute(null))` after one Execute"],
     ["Decrement decrements by one", "command effect + symmetry", "inc, dec, `Assert.Equal(0, vm.Count)`"],
   ]}},
-  { p: "Notice the pattern: tests 2 and 4 are about `CanExecute`, not about arithmetic. The examiner is checking you know commands have a second half. Copy-ready versions: [[pb-unit-testing|testing playbook]]." },
+  { p: "Notice the pattern: tests 2 and 4 are about `CanExecute`, not about arithmetic. The examiner is checking you know commands have a second half. The five tests are a ready-to-run project below — download it and `dotnet test` goes green. (Deeper dive: [[pb-unit-testing|testing playbook]].)" },
+  { demo: "counter-tests" },
   { h: "August P3: requirements → mechanism mapping" },
   { table: { head: ["Requirement (points)", "Mechanism", "Why"], rows: [
     ["+1 every 100 ms (10)", "DispatcherTimer Interval=100ms, or Task loop with `await Task.Delay(100, token)`", "a loop with delay IS a timer"],
@@ -325,7 +331,8 @@ blocks: [
     "**Double-start**: clicking Start twice must not create two loops (counter would jump by 2). Guard: `if (_cts is not null) return;` or `if (_timer is { IsEnabled: true }) return;`",
     "**Resume vs restart**: pause means cancel the LOOP, keep the VALUE. People who stuff `Count = 0` into Stop lose the resume points.",
   ]},
-  { p: "All three full implementations: [[pb-async|async playbook]]." },
+  { p: "All three full implementations are in the runnable download below (Solution A is wired up; B and C are in the source). Click Start to watch it climb, Stop to pause, Start to resume. (Deeper dive: [[pb-async|async playbook]].)" },
+  { demo: "async-counter" },
 ]},
 
 {
@@ -367,7 +374,7 @@ cat: "3-Day Bootcamp",
 tags: ["day 3", "linq anatomy", "pipeline", "groupby join", "dissection"],
 related: ["lq-cookbook", "bc-d3-exam", "lq-lazy-evaluation"],
 blocks: [
-  { p: "You know LINQ; this dissection is about WRITING the exam's hardest query shape calmly: best-selling product = group + aggregate + sort + join + first. Watch the TYPE at every stage; that's the skill." },
+  { p: "You know LINQ; this dissection is about WRITING the exam's hardest query shape calmly: best-selling product = group + aggregate + sort + join + first. Watch the TYPE at every stage; that's the skill. To run LINQ live while you read, grab the spaceships console in the [[bc-d3-exam|next lesson]] or the [[bc-starter-kit|starter kit]]'s ExamConsole and paste these stages in." },
   { code: String.raw`var bestSeller = sales                       // List<Sale>
     .GroupBy(s => s.ProductId)               // IEnumerable<IGrouping<int, Sale>>
     //  each group: Key = ProductId, contents = that product's Sale rows
@@ -422,7 +429,8 @@ blocks: [
     ["4 · average trips per type", "average of a COUNT, grouped", "`GroupBy(Type)` then `g.Average(s => s.TravelHistory?.Count ?? 0)`"],
     ["5 · departed Ganymede in 2245", "two conditions on the same trip + nullable date", "`Any(t => t.DeparturePort == \"Ganymede Port\" && t.DepartureDate?.Year == 2245)`"],
   ]}},
-  { p: "The 10 'parse JSON' points are really nullable-modeling points: `List<Trip>?` and `DateTime?` absorb the missing values. And 4.3's binary search has one silent killer: sort by Name FIRST. Full code: [[ex-june-p4-linq|spaceships solution]]." },
+  { p: "The 10 'parse JSON' points are really nullable-modeling points: `List<Trip>?` and `DateTime?` absorb the missing values. And 4.3's binary search has one silent killer: sort by Name FIRST. The complete console is downloadable and runnable below — `dotnet run` prints the labelled results, Rocinante and all. (Deeper dive: [[ex-june-p4-linq|spaceships solution]].)" },
+  { demo: "spaceships-linq" },
   { h: "SOLID written answers (Aug P1): the construction recipe" },
   { steps: [
     "Sentence 1: verdict. \"LSP: VIOLATED.\" / \"ISP: PRESENT.\" The grader can tick the 1-point box instantly.",

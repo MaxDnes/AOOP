@@ -69,6 +69,7 @@ let lastModel = null;    // parsed model
 let lastError = null;    // {message, excerpt} when generation failed (spec 14)
 let viewModes = {};      // file index -> "edit" | "view"
 let collapsed = {};      // generated fileName -> true when its card is collapsed
+let lastExampleId = null; // id of the worked example currently loaded (for the teaching note)
 let saveTimer = null;
 let genTimer = null;
 
@@ -77,6 +78,13 @@ const STORE_VERSION = 1;
 
 /* ---------------- helpers ---------------- */
 function core() { return global.TESTLAB_CORE; }
+
+/* the worked-examples gallery (data/testlab-examples.js). Absent if that file
+   did not load: the gallery strip hides itself rather than crash. */
+function gallery() { return Array.isArray(global.TESTLAB_EXAMPLES) ? global.TESTLAB_EXAMPLES : []; }
+function exampleById(id) {
+  return gallery().filter(function (ex) { return ex && ex.id === id; })[0] || null;
+}
 
 /* the zip/scaffold core, loaded read-only. Absent if projzip-core.js did not
    load (e.g. a changed script order): the export button hides itself rather
@@ -387,7 +395,8 @@ function outputHTML() {
   if (!lastFiles.length) {
     return '<div class="tl-empty">No classes detected. Paste a full C# class or ViewModel (with its <b>class</b> / <b>partial class</b> declaration) and try again.</div>';
   }
-  let h = summaryHTML();
+  let h = teachHTML();
+  h += summaryHTML();
   h += '<div class="tl-bar"><button class="copybtn" onclick="TL.copyAll(this)">copy all</button></div>';
   /* collapsible cards once there are more than 2 files (spec 14, item 5) */
   const collapsible = lastFiles.length > 2;
@@ -422,6 +431,49 @@ function hiFile(code, lang) {
   return esc(code);
 }
 
+/* ---------------- worked-examples gallery ---------------- */
+/* A strip of one-click examples. Each loads a realistic C# input and shows a
+   plain-language note on how its tests were generated, so the reader can watch
+   the Positive / Negative / Edge mapping happen instead of guessing at it. */
+function galleryHTML() {
+  const exs = gallery();
+  if (!exs.length) return "";
+  let h = '<div class="tl-gallery" id="tl-gallery">';
+  h += '<div class="tl-gallery-head">' +
+    '<span class="tl-gallery-title">Worked examples</span>' +
+    '<span class="tl-gallery-sub">load one to see how its tests are generated</span></div>';
+  h += '<div class="tl-gallery-row">';
+  exs.forEach(function (ex) {
+    const on = lastExampleId === ex.id;
+    h += '<button class="tl-ex' + (on ? " on" : "") + '" onclick="TL.loadGallery(\'' + jsq(ex.id) + '\')" title="' + esc(ex.summary || "") + '">' +
+      '<span class="tl-ex-title">' + esc(ex.title || ex.name || ex.id) + "</span>" +
+      '<span class="tl-ex-sum">' + esc(ex.summary || "") + "</span>" +
+      "</button>";
+  });
+  h += "</div></div>";
+  return h;
+}
+
+/* The teaching panel shown above generated output once a worked example is
+   loaded: a numbered list of why-this-test notes plus a one-time legend of the
+   Arrange/Act/Assert and Positive/Negative/Edge conventions. */
+function teachHTML() {
+  if (!lastExampleId) return "";
+  const ex = exampleById(lastExampleId);
+  if (!ex || !Array.isArray(ex.notes) || !ex.notes.length) return "";
+  let h = '<div class="tl-teach" id="tl-teach">';
+  h += '<div class="tl-teach-head">How these tests are generated · <b>' + esc(ex.title || ex.name) + "</b></div>";
+  h += '<ol class="tl-teach-notes">';
+  ex.notes.forEach(function (n) { h += "<li>" + esc(n) + "</li>"; });
+  h += "</ol>";
+  h += '<div class="tl-teach-legend">' +
+    '<span class="tl-teach-key"><b>Arrange / Act / Assert</b> set up the object, call the method, then check the outcome.</span>' +
+    '<span class="tl-teach-key"><b>Positive</b> a valid call works · <b>Negative</b> a bad call is rejected · <b>Edge</b> the boundary values hold.</span>' +
+    "</div>";
+  h += "</div>";
+  return h;
+}
+
 /* ---------------- page ---------------- */
 function render() {
   ensureState();
@@ -429,6 +481,8 @@ function render() {
   h += '<div class="crumb"><b>TEST LAB</b></div>';
   h += '<h1 class="topic-title">Test Lab</h1>';
   h += '<p class="bp">Paste the Problem 3 class or ViewModel and generate ready-to-paste xUnit files. The default <b>Per-function P/N/E</b> mode lists every method and command it finds: tick the ones you care about and it emits a labeled <b>Positive / Negative / Edge</b> trio for each. The other modes (plain unit tests, ViewModel command tests, headless Avalonia scaffold, timing-tolerant async patterns, the exact-version csproj and an offline runbook) stay available. Real asserts are filled in where derivable; everything else is a marked TODO.</p>';
+  h += '<p class="bp">New to writing tests? Load a <b>worked example</b> below: it fills the editor with real C#, generates its tests, and explains line by line how each method turned into a Positive / Negative / Edge case.</p>';
+  h += '<div class="tl-gallery-wrap" id="tl-gallery-wrap">' + galleryHTML() + "</div>";
   h += '<div class="tl">';
   h += '<div class="tl-left">';
   h += '<div class="tl-tabs" id="tl-tabs">' + tabsHTML() + "</div>";
@@ -463,6 +517,7 @@ function paintModes() { paint("tl-modes", modesHTML()); }
 function paintPicker() { paint("tl-picker-wrap", pickerHTML()); }
 function paintExport() { paint("tl-export-wrap", exportHTML()); }
 function paintOutput() { paint("tl-output", outputHTML()); }
+function paintGallery() { paint("tl-gallery-wrap", galleryHTML()); }
 
 /* ---------------- actions (window.TL) ---------------- */
 function doGenerate(silent) {
@@ -545,6 +600,10 @@ function edit(value) {
   ensureState();
   if (!state.files[state.active]) return;
   state.files[state.active].text = value;
+  /* once the reader hand-edits, the loaded example no longer matches the
+     source, so drop the teaching note (repaint the gallery to clear its
+     highlight only on the edit that first detaches it). */
+  if (lastExampleId !== null) { lastExampleId = null; paintGallery(); }
   scheduleSave();
   scheduleGenerate();
 }
@@ -562,9 +621,28 @@ function loadExample() {
   else state.files.push({ name: EXAMPLE_NAME, text: EXAMPLE });
   state.active = state.files.length - 1;
   viewModes = {};
+  lastExampleId = null;
   saveState();
-  paintTabs(); paintEditor();
+  paintTabs(); paintEditor(); paintGallery();
   doGenerate(false);
+}
+
+/* Load a worked example from the gallery: replace the editor with its single
+   source file, remember which example it is (so the teaching note shows), then
+   generate so the reader sees the source and its tests together. */
+function loadGallery(id) {
+  ensureState();
+  const ex = exampleById(id);
+  if (!ex) return;
+  state.files = [{ name: ex.name || (ex.id + ".cs"), text: ex.source || "" }];
+  state.active = 0;
+  state.selection = {};        /* every function on, so the trio is complete */
+  viewModes = {};
+  lastExampleId = ex.id;
+  saveState();
+  paintTabs(); paintEditor(); paintGallery();
+  doGenerate(false);
+  setStatus("loaded example: " + (ex.title || ex.name || ex.id));
 }
 
 function setMode(key, on) {
@@ -754,6 +832,7 @@ const TL = {
   edit: edit,
   toggleView: toggleView,
   loadExample: loadExample,
+  loadGallery: loadGallery,
   setMode: setMode,
   setFunc: setFunc,
   allFuncs: allFuncs,

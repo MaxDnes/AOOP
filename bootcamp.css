@@ -1,0 +1,122 @@
+/* ============================================================
+   bootcamp.css — the {demo} block: a runnable example embedded
+   right in the lesson (Download .zip + live preview + full source),
+   so the reader never has to hop to another tab or a disk folder.
+   Uses the shared design tokens from styles.css.
+   ============================================================ */
+
+.bcdemo {
+  margin: 18px 0;
+  border: 1px solid rgba(127, 217, 98, .38);
+  border-left: 3px solid var(--green);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(420px 120px at 100% -40px, rgba(127, 217, 98, .07), transparent 70%),
+    var(--ink-2);
+  padding: 14px 16px 16px;
+}
+
+.bcdemo-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bcdemo-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.bcdemo-ico {
+  color: var(--green);
+  font-size: 13px;
+}
+.bcdemo-name {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #e8edf7;
+  letter-spacing: .2px;
+}
+
+/* the download button: the primary call to action */
+.bcdemo-dl {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-0);
+  background: var(--green);
+  border: 1px solid var(--green);
+  border-radius: 7px;
+  padding: 8px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+}
+.bcdemo-dl:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(127, 217, 98, .25);
+  background: #93e878;
+}
+.bcdemo-dl:active { transform: translateY(0); }
+.bcdemo-dl.done {
+  background: var(--cyan);
+  border-color: var(--cyan);
+  color: var(--ink-0);
+}
+.bcdemo-dl-off {
+  background: transparent;
+  color: var(--text-faint);
+  border-color: var(--line);
+  cursor: default;
+}
+.bcdemo-dl-off:hover { transform: none; box-shadow: none; background: transparent; }
+
+.bcdemo-blurb {
+  margin: 12px 0 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.bcdemo-blurb code, .bcdemo-hint code {
+  font-family: var(--mono);
+  font-size: .9em;
+  background: var(--ink-4);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #e8edf7;
+}
+.bcdemo-blurb b { color: #e8edf7; font-weight: 600; }
+
+.bcdemo-hint {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--ink-1);
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  padding: 8px 11px;
+}
+
+/* the inline preview ("see it in action") — tighten the shared .preview look */
+.bcdemo-preview { margin: 14px 0 4px; }
+
+/* the full-source reveal: green dashed like the other reveals, but flush in the card */
+.bcdemo-code { margin: 14px 0 0; }
+.bcdemo-code > summary { padding-left: 0; padding-right: 0; }
+
+.bcdemo-missing {
+  border-left-color: var(--red);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+/* on narrow screens, let the button drop under the title cleanly */
+@media (max-width: 560px) {
+  .bcdemo-dl { width: 100%; text-align: center; }
+}

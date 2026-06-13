@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="mvvmconv.css">
 <link rel="stylesheet" href="adapt.css">
 <link rel="stylesheet" href="errors.css">
+<link rel="stylesheet" href="bootcamp.css">
 </head>
 <body>
   <div class="frame">
@@ -64,6 +65,10 @@
   <script src="data/analyzer.js"></script>
   <script src="data/exam-fixtures.js"></script>
   <script src="data/testlab-core.js"></script>
+  <!-- worked-examples gallery (window.TESTLAB_EXAMPLES): curated C# inputs the
+       Test Lab loads one-click to demonstrate how tests are generated. Plain
+       data, loaded before testlab.js which reads it at render time. -->
+  <script src="data/testlab-examples.js"></script>
   <script src="data/testlab.js"></script>
   <script src="data/quiz-bank.js"></script>
   <script src="data/quiz.js"></script>
@@ -85,6 +90,10 @@
   <script src="data/errors.js"></script>
   <!-- guide tool: orientation tab, UI-only (no core file), defines window.GUIDE -->
   <script src="data/guide.js"></script>
+  <!-- bootcamp-demos: runnable example registry the bootcamp embeds (Download +
+       preview + full source inline). Reads window.PROJZIP at click time, so it
+       loads after projzip-core and before bootcamp.js which references the ids. -->
+  <script src="data/bootcamp-demos.js"></script>
   <script src="data/bootcamp.js"></script>
   <script src="data/playbooks.js"></script>
   <script src="data/solutions-summer.js"></script>
@@ -102,6 +111,9 @@
   <script src="data/algorithms.js"></script>
   <script src="data/process.js"></script>
   <script src="data/exams.js"></script>
+  <!-- per-topic collapsible "Examples" sections (window.TOPIC_EXAMPLES); loaded
+       after all content modules so renderExamples() can append them to any topic -->
+  <script src="data/examples.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

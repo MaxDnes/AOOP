@@ -223,6 +223,7 @@ function highlight(code, lang) {
    blockIndex = position of this block within t.blocks (passed by .map). Used
    to key task checkboxes uniquely even when a topic has several tasks blocks. */
 function renderBlock(b, blockIndex) {
+  if (b.demo) return renderDemo(b.demo);
   if (b.h) return '<h2 class="bh" id="' + esc(b.h.toLowerCase().replace(/[^a-z0-9]+/g, "-")) + '">' + inline(b.h) + "</h2>";
   if (b.p) return '<p class="bp">' + inline(b.p) + "</p>";
   if (b.list) return '<ul class="bl">' + b.list.map((li) => "<li>" + inline(li) + "</li>").join("") + "</ul>";
@@ -276,6 +277,93 @@ function renderBlock(b, blockIndex) {
   return "";
 }
 
+/* ---------------- bootcamp demo block ----------------
+   {demo:"<id>"} pulls a runnable example from window.BOOTCAMP_DEMOS and renders
+   it inline: a Download (.zip) button, a visual preview of it running, and the
+   full source behind a reveal. The point is to NOT send the reader to another
+   tab or an AOP_extracted\ folder — the example lives right here. */
+function renderDemo(id) {
+  const reg = (typeof window !== "undefined" && window.BOOTCAMP_DEMOS) || null;
+  const demo = reg && reg.byId ? reg.byId(id) : null;
+  if (!demo) return '<div class="bcdemo bcdemo-missing">Example “' + esc(id) + '” is unavailable.</div>';
+
+  const canZip = !!(typeof window !== "undefined" && window.PROJZIP &&
+    typeof window.PROJZIP.makeZipBlobUrl === "function");
+
+  let h = '<div class="bcdemo">';
+  h += '<div class="bcdemo-bar">';
+  h += '<div class="bcdemo-meta"><span class="bcdemo-ico">▶</span><span class="bcdemo-name">' + esc(demo.title) + "</span></div>";
+  if (canZip) {
+    h += '<button class="bcdemo-dl" onclick="BCDEMO.download(\'' + id + '\', this)" title="Download a complete, runnable project (.zip)">⤓ ' +
+      esc(demo.dlLabel || "Download runnable project (.zip)") + "</button>";
+  } else {
+    h += '<span class="bcdemo-dl bcdemo-dl-off" title="Open the app from index.html so the .zip writer loads">⤓ download unavailable</span>';
+  }
+  h += "</div>";
+
+  if (demo.blurb) h += '<div class="bcdemo-blurb">' + inline(demo.blurb) + "</div>";
+  if (demo.runHint) h += '<div class="bcdemo-hint">▸ ' + inline(demo.runHint) + "</div>";
+
+  if (demo.preview) {
+    h += '<div class="preview bcdemo-preview"><div class="preview-chrome">' +
+      '<span class="pdot"></span><span class="pdot"></span><span class="pdot"></span>' +
+      '<span class="preview-title">' + esc(demo.previewTitle || "what you get when you run it") + "</span></div>" +
+      '<div class="preview-body">' + demo.preview + "</div></div>";
+  }
+
+  if (demo.files && demo.files.length) {
+    h += '<details class="reveal bcdemo-code"><summary>Show all ' + demo.files.length + " files (no tab-hop)</summary>";
+    h += demo.files.map((f) => renderBlock({ code: f.code, lang: f.lang || "csharp", title: f.title })).join("");
+    h += "</details>";
+  }
+
+  h += "</div>";
+  return h;
+}
+
+/* download a bootcamp demo as a runnable .zip (built on click from PROJZIP). */
+window.BCDEMO = {
+  download: function (id, btn) {
+    const reg = window.BOOTCAMP_DEMOS;
+    const demo = reg && reg.byId ? reg.byId(id) : null;
+    const P = window.PROJZIP;
+    if (!demo) { flashBtn(btn, "example not found"); return; }
+    if (!P || typeof P.makeZipBlobUrl !== "function") { flashBtn(btn, "zip writer missing"); return; }
+    let entries;
+    try { entries = demo.build(P); } catch (e) { entries = null; }
+    if (!entries || !entries.length) { flashBtn(btn, "build failed"); return; }
+    const base = (P.sanitizeName ? P.sanitizeName(demo.zipName || id, "ExamExample") : (demo.zipName || id));
+    try {
+      const url = P.makeZipBlobUrl(entries);
+      triggerBlobDownload(url, base + ".zip");
+      setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 4000);
+      flashBtn(btn, "downloaded ✓");
+    } catch (e) {
+      flashBtn(btn, "download failed");
+    }
+  },
+};
+
+function triggerBlobDownload(url, fileName) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+/* brief button confirmation, mirroring the copybtn "copied ✓" affordance */
+function flashBtn(btn, label) {
+  if (!btn) return;
+  const orig = btn.getAttribute("data-orig") || btn.textContent;
+  btn.setAttribute("data-orig", orig);
+  btn.textContent = label;
+  btn.classList.add("done");
+  setTimeout(function () { btn.textContent = btn.getAttribute("data-orig") || "download"; btn.classList.remove("done"); }, 1800);
+}
+
 function callout(cls, icon, label, text) {
   return '<div class="callout ' + cls + '"><div class="co-icon">' + icon + "</div><div>" +
     '<span class="co-label">' + esc(label) + "</span>" + inline(text) + "</div></div>";
@@ -297,6 +385,28 @@ function toggleTask(key, el) {
   }
 }
 
+/* collapsed, per-topic "Examples" section appended to every reference topic.
+   The content lives in data/examples.js (window.TOPIC_EXAMPLES, keyed by topic
+   id): [{ title, lang, code }]. Each example code block registers in codeRegistry
+   so its copy button works exactly like an inline code block. Renders nothing if
+   the topic has no examples, so it is safe on every topic. */
+function renderExamples(t) {
+  var lib = (typeof window !== "undefined" && window.TOPIC_EXAMPLES) || {};
+  var items = lib[t.id];
+  if (!Array.isArray(items) || !items.length) return "";
+  var inner = items.map(function (it) {
+    var lang = it.lang || "csharp";
+    var idx = codeRegistry.push(it.code) - 1;
+    return '<div class="codeblock">' +
+      '<div class="code-head"><span class="code-lang lang-' + lang + '">' + esc(lang) + "</span>" +
+      '<span class="code-title">' + esc(it.title || "") + "</span>" +
+      '<button class="copybtn" onclick="copyCode(this,' + idx + ')">copy</button></div>' +
+      '<pre class="code">' + highlight(it.code, lang) + "</pre></div>";
+  }).join("");
+  return '<details class="reveal examples-reveal"><summary>Examples — click to expand (' +
+    items.length + ")</summary>" + inner + "</details>";
+}
+
 /* ---------------- topic page ---------------- */
 function renderTopic(t) {
   codeRegistry = [];
@@ -315,6 +425,7 @@ function renderTopic(t) {
     }).join("") + "</div>";
   }
   h += t.blocks.map(renderBlock).join("");
+  h += renderExamples(t);
 
   if (t.related && t.related.length) {
     h += '<div class="related"><div class="section-label">Related</div>';
@@ -748,6 +859,15 @@ function fallbackCopy(text, done) {
 /* ---------------- search ---------------- */
 function collectBlockText(b, s) {
   ["p", "rule", "def", "tip", "gotcha", "h"].forEach((k) => { if (b[k]) s.push(b[k]); });
+  if (b.demo) {
+    s.push(String(b.demo));
+    const reg = (typeof window !== "undefined" && window.BOOTCAMP_DEMOS) || null;
+    const demo = reg && reg.byId ? reg.byId(b.demo) : null;
+    if (demo) {
+      s.push(demo.title || "", demo.blurb || "");
+      (demo.files || []).forEach((f) => s.push(f.title || ""));
+    }
+  }
   if (b.list) s.push(b.list.join(" "));
   if (b.steps) s.push(b.steps.join(" "));
   if (b.tasks) s.push(b.tasks.join(" "));

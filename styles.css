@@ -558,6 +558,16 @@ details.reveal[open] { padding-bottom: 12px; }
 details.reveal[open] > summary { border-bottom: 1px dashed rgba(127, 217, 98, .3); margin-bottom: 8px; }
 details.reveal > *:not(summary) { margin-left: 14px !important; margin-right: 14px !important; }
 
+/* per-topic "Examples" reveal (renderExamples) — cyan accent + a little air above
+   so it reads as a distinct, expandable examples block at the foot of every topic */
+details.reveal.examples-reveal {
+  margin-top: 26px;
+  border-color: rgba(57, 186, 230, .45);
+  background: var(--cyan-soft);
+}
+details.reveal.examples-reveal > summary { color: var(--cyan); }
+details.reveal.examples-reveal[open] > summary { border-bottom-color: rgba(57, 186, 230, .3); }
+
 /* ---------- design previews ---------- */
 .preview {
   margin: 16px 0;
