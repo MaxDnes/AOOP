@@ -697,11 +697,11 @@
       + '<button class="dsg-btn" title="Duplicate selection (Ctrl+D)" onclick="DSG.duplicate()">⧉ Duplicate</button>'
       + '<span class="dsg-tb-sep"></span>'
       + '<select class="dsg-select" id="dsg-slot" title="saved designs">' + slotOptions() + "</select>"
-      + '<button class="dsg-btn" onclick="DSG.loadSlot()">Load</button>'
-      + '<button class="dsg-btn" onclick="DSG.saveAs()">Save as…</button>'
-      + '<button class="dsg-btn" onclick="DSG.deleteSlot()">Delete</button>'
-      + '<button class="dsg-btn" onclick="DSG.newDesign()">New</button>'
-      + '<button class="dsg-btn" onclick="DSG.seedExamples()">Re-seed examples</button>'
+      + '<button class="dsg-btn" title="open the design picked in the dropdown" onclick="DSG.loadSlot()">Load</button>'
+      + '<button class="dsg-btn" title="save the current design under a name" onclick="DSG.saveAs()">Save as…</button>'
+      + '<button class="dsg-btn" title="delete the design picked in the dropdown" onclick="DSG.deleteSlot()">Delete</button>'
+      + '<button class="dsg-btn" title="start a new, empty window" onclick="DSG.newDesign()">New</button>'
+      + '<button class="dsg-btn" title="restore the built-in example designs" onclick="DSG.seedExamples()">↻ Reload examples</button>'
       + '<span class="dsg-tb-sep"></span>'
       + '<button class="dsg-btn" title="download this design as JSON" onclick="DSG.exportDesigns()">⭳ Export</button>'
       + '<button class="dsg-btn" title="import designs from a JSON file" onclick="DSG.importDesigns()">⭱ Import</button>'
@@ -798,11 +798,18 @@
   function paletteHTML() {
     let h = '<aside class="dsg-palette">';
     CORE.PALETTE_GROUPS.forEach(function (g) {
-      h += '<div class="dsg-pal-label">' + escH(g.name) + '</div><div class="dsg-pal-grid">';
+      h += '<div class="dsg-pal-label">' + escH(g.name)
+        + (g.hint ? '<span class="dsg-pal-label-hint">' + escH(g.hint) + "</span>" : "")
+        + '</div><div class="dsg-pal-grid">';
       g.types.forEach(function (t) {
         const def = CORE.CATALOG[t] || {};
-        h += '<div class="dsg-tool" draggable="true" data-type="' + escH(t) + '" title="drag onto the window">'
-          + '<span class="dsg-tool-ic">' + escH(def.icon || "▭") + "</span><span>" + escH(t) + "</span></div>";
+        const plain = (CORE.PLAIN && CORE.PLAIN[t]) || "";
+        const tip = plain ? t + " — " + plain + ". Drag onto the window." : "drag onto the window";
+        h += '<div class="dsg-tool" draggable="true" data-type="' + escH(t) + '" title="' + escH(tip) + '">'
+          + '<span class="dsg-tool-ic">' + escH(def.icon || "▭") + "</span>"
+          + '<span class="dsg-tool-txt"><span class="dsg-tool-name">' + escH(t) + "</span>"
+          + (plain ? '<span class="dsg-tool-sub">' + escH(plain) + "</span>" : "")
+          + "</span></div>";
       });
       h += "</div>";
     });
@@ -913,6 +920,25 @@
       + opts + "</select></div>";
   }
 
+  /* Margin/Padding edited as four sides. Parse an Avalonia thickness string
+     ("u" | "h,v" | "l,t,r,b") into [Left, Top, Right, Bottom] strings. */
+  function parseThickness(str) {
+    const s = String(str == null ? "" : str).trim();
+    if (!s) return ["", "", "", ""];
+    const p = s.split(",").map(function (x) { return x.trim(); });
+    if (p.length === 1) return [p[0], p[0], p[0], p[0]];
+    if (p.length === 2) return [p[0], p[1], p[0], p[1]];
+    return [p[0] || "0", p[1] || "0", p[2] || "0", p[3] || "0"];
+  }
+  /* compose [L,T,R,B] back to the shortest equivalent string; all-zero -> "" (no margin) */
+  function composeThickness(arr) {
+    const n = arr.map(function (x) { const v = String(x == null ? "" : x).trim(); return v === "" ? "0" : v; });
+    if (n.every(function (v) { return v === "0"; })) return "";
+    if (n[0] === n[1] && n[1] === n[2] && n[2] === n[3]) return n[0];
+    if (n[0] === n[2] && n[1] === n[3]) return n[0] + "," + n[1];
+    return n.join(",");
+  }
+
   function propRow(node, p, defaults) {
     defaults = defaults || {};
     const name = p.name;
@@ -937,6 +963,22 @@
       return h;
     }
     const cur = node.props[name] != null ? node.props[name] : "";
+    /* Margin / Padding: four labelled side boxes (Left / Top / Right / Bottom).
+       Editing the Left or Right box is how you nudge an element sideways inside a
+       StackPanel; Top / Bottom moves it up/down. */
+    if (p.kind === "thickness" || name === "Margin" || name === "Padding") {
+      const t = parseThickness(cur);
+      const sides = ["Left", "Top", "Right", "Bottom"];
+      let cells = "";
+      sides.forEach(function (s, idx) {
+        cells += '<input class="dsg-in dsg-th" type="number" step="any" title="' + s
+          + '" placeholder="' + s.charAt(0) + '" value="' + escH(t[idx]) + '"'
+          + ' oninput="DSG.setThicknessSide(\'' + escH(name) + '\', ' + idx + ', this.value)">';
+      });
+      h += '<span class="dsg-thickness" title="Left · Top · Right · Bottom">' + cells + "</span>";
+      h += "</div>";
+      return h;
+    }
     if (p.kind === "number") {
       h += '<input class="dsg-in" type="number" step="any" value="' + escH(cur) + '"'
         + ' oninput="DSG.setProp(\'' + escH(name) + '\', this.value, \'number\')">';
@@ -1158,9 +1200,10 @@
     let h = '<div class="content-inner content-wide">';
     h += '<div class="crumb"><b>VISUAL DESIGNER</b></div>';
     h += '<h1 class="topic-title">Visual Designer</h1>';
-    h += '<p class="bp">Drag controls from the palette into the window, click to select, tweak in the inspector. '
-      + 'Drop a color swatch on any element to paint it; hit <span class="kbd">Del</span> to remove the selection. '
-      + "The AXAML + ViewModel below stay in sync — copy and paste them into the Starter Kit.</p>";
+    h += '<p class="bp">New to the control names? Each item in the palette shows a plain-English description of what it does — '
+      + 'just drag one into the window, click it to select, and change its settings in the panel on the right. '
+      + 'Drag a colour swatch onto anything to paint it; press <span class="kbd">Del</span> to remove what you selected. '
+      + "The AXAML + ViewModel code below updates as you go — copy and paste them into the Starter Kit.</p>";
     h += toolbarHTML();
     h += '<div class="dsg">';
     h += paletteHTML();
@@ -1637,6 +1680,19 @@
 
     /* G8: the root namespace stamped into xmlns:vm / x:Class / `namespace ...`. Empty
        falls back to ExamApp (keeps the projzip namespace-rewrite path intact). */
+    /* one side of a Margin/Padding thickness; recomposes the shortest string */
+    setThicknessSide: function (name, idx, value) {
+      const node = CORE.findNode(tree, selectedId);
+      if (!node) return;
+      pushUndoCoalesced(selectedId + "|thick|" + name);
+      const parts = parseThickness(node.props[name]);
+      parts[idx] = String(value == null ? "" : value).trim();
+      const composed = composeThickness(parts);
+      if (composed === "") delete node.props[name];
+      else node.props[name] = composed;
+      refreshLight();
+    },
+
     setProjectNamespace: function (value) {
       pushUndoCoalesced("root|projns");
       const s = String(value == null ? "" : value).trim();

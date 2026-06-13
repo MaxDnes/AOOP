@@ -1107,15 +1107,15 @@ test("spec19: both presets still generate byte-identical happy-path code", () =>
 });
 
 /* --- UI reachability: new controls render and wire to state --- */
-test("spec19 UI: filter-equals null mode hides the value box and sets match", () => {
+test("UI: filter-equals 'is null' operator hides the value box and emits == null", () => {
   const f = freshUI();
   f.QL.setJson(LIGHTHOUSE_SAMPLE);
   f.QL.addQuery();
   f.QL.setRow(0, "field", "keeper");
-  f.QL.setRow(0, "match", "null");
+  f.QL.setRow(0, "op", "is");
   const rowsHtml = f.els["ql-rows"].innerHTML;
-  includes(rowsHtml, "== null (empty/missing)", "eqMatch dropdown offers the null mode");
-  /* generated output must carry the null compare (innerHTML is HTML-rendered code) */
+  includes(rowsHtml, "is null / empty", "operator dropdown offers the is-null operator");
+  notIncludes(rowsHtml, 'class="ql-val"', "value box is hidden for the is-null operator");
   includes(f.els["ql-output"].innerHTML, "s.Keeper == null");
 });
 
@@ -1143,4 +1143,108 @@ test("spec19 UI: setAndWhere is exported on window.QL", () => {
   delete require.cache[require.resolve("../data/querylab.js")];
   require("../data/querylab.js");
   ok(typeof global.QL.setAndWhere === "function", "QL.setAndWhere must be exported");
+});
+
+/* ============================================================
+   Supabase-style comparison operators, per-group "most frequent",
+   group sort, and the in-app query RUNNER. Uses a small comics
+   fixture matching the practice exam (Title/Author/Genre/ReleaseYear).
+   ============================================================ */
+const COMICS_SAMPLE = JSON.stringify([
+  { Title: "Watchmen", Author: "Alan Moore", Genre: "Superhero", ReleaseYear: 1986 },
+  { Title: "V for Vendetta", Author: "Alan Moore", Genre: "Sci-Fi", ReleaseYear: 1988 },
+  { Title: "DKR", Author: "Frank Miller", Genre: "Superhero", ReleaseYear: 1986 },
+  { Title: "Year One", Author: "Frank Miller", Genre: "Superhero", ReleaseYear: 1987 },
+  { Title: "Saga", Author: "Brian K. Vaughan", Genre: "Sci-Fi", ReleaseYear: 2012 },
+  { Title: "Sandman", Author: "Neil Gaiman", Genre: "Fantasy", ReleaseYear: 1989 },
+]);
+function comicsModel() {
+  const r = C.parseSample(COMICS_SAMPLE, { allNullable: true });
+  ok(r.ok, "comics model parses");
+  return r.model;
+}
+function comicsRows() {
+  const ex = C.extractRows(COMICS_SAMPLE);
+  ok(ex.ok, "comics rows extract");
+  return ex.rows;
+}
+
+test("operator codegen: lt/gt/gte/lte emit the right numeric C# comparison", () => {
+  const m = comicsModel();
+  const lt = C.buildQuery(m, { name: "q", shape: "filter-equals", field: "ReleaseYear", op: "lt", value: "2000" }, {});
+  includes(lt.decl, "s.ReleaseYear < 2000");
+  const gte = C.buildQuery(m, { name: "q", shape: "filter-equals", field: "ReleaseYear", op: "gte", value: "1987" }, {});
+  includes(gte.decl, "s.ReleaseYear >= 1987");
+  const neq = C.buildQuery(m, { name: "q", shape: "filter-equals", field: "Genre", op: "neq", value: "Sci-Fi" }, {});
+  includes(neq.decl, 's.Genre != "Sci-Fi"');
+});
+test("operator codegen: like/in/isNot generate contains, an OR set, and a not-null test", () => {
+  const m = comicsModel();
+  const like = C.buildQuery(m, { name: "q", shape: "filter-equals", field: "Title", op: "like", value: "man" }, {});
+  includes(like.decl, '.Contains("man")');
+  const inq = C.buildQuery(m, { name: "q", shape: "filter-equals", field: "ReleaseYear", op: "in", value: "1986, 1987" }, {});
+  includes(inq.decl, "s.ReleaseYear == 1986 || s.ReleaseYear == 1987");
+  const notNull = C.buildQuery(m, { name: "q", shape: "filter-equals", field: "Author", op: "isNot", value: "" }, {});
+  includes(notNull.decl, "s.Author != null");
+});
+test("group-aggregate sort: valueDesc appends OrderByDescending on the count", () => {
+  const m = comicsModel();
+  const q = C.buildQuery(m, { name: "q", shape: "group-aggregate", field: "Author", aggregate: "Count", sort: "valueDesc" }, {});
+  includes(q.decl, ".GroupBy(s => s.Author");
+  includes(q.decl, ".OrderByDescending(x => x.Value)");
+});
+test("per-group most-frequent codegen: nested GroupBy + argmax, ordered by the outer key", () => {
+  const m = comicsModel();
+  const q = C.buildQuery(m, { name: "q", shape: "most-frequent-per-group", field: "ReleaseYear", subField: "Author", direction: "desc" }, {});
+  includes(q.decl, ".GroupBy(s => s.ReleaseYear");
+  includes(q.decl, ".OrderBy(g => g.Key)");
+  includes(q.decl, "g.GroupBy(c => c.Author");
+  includes(q.decl, "Max(grp => grp.Count())");
+});
+
+test("runner 3.2.1: filter ReleaseYear < 2000 returns exactly the pre-2000 comics", () => {
+  const m = comicsModel(), rows = comicsRows();
+  const res = C.runQuery(m, { shape: "filter-equals", field: "ReleaseYear", op: "lt", value: "2000" }, rows, {});
+  ok(res.ok, "ran");
+  eq(res.data.length, 5, "five comics before 2000 (only Saga is 2012)");
+  ok(res.data.every((d) => d.ReleaseYear < 2000), "every result is pre-2000");
+});
+test("runner 3.2.2: comics per author, most first, runs and sorts by count desc", () => {
+  const m = comicsModel(), rows = comicsRows();
+  const res = C.runQuery(m, { shape: "group-aggregate", field: "Author", aggregate: "Count", sort: "valueDesc" }, rows, {});
+  ok(res.ok, "ran");
+  eq(res.data[0].Key, "Alan Moore", "Alan Moore leads");
+  eq(res.data[0].Value, 2, "with 2 comics");
+  /* descending: each count <= the previous */
+  for (let i = 1; i < res.data.length; i++) ok(res.data[i].Value <= res.data[i - 1].Value, "sorted desc");
+});
+test("runner 3.2.3: per year the most active author, ordered by year", () => {
+  const m = comicsModel(), rows = comicsRows();
+  const res = C.runQuery(m, { shape: "most-frequent-per-group", field: "ReleaseYear", subField: "Author", direction: "desc" }, rows, {});
+  ok(res.ok, "ran");
+  const y1986 = res.data.find((d) => d.ReleaseYear === 1986);
+  ok(y1986, "1986 present");
+  eq(y1986.Count, 1, "1986 has a tie at 1 each (Alan Moore / Frank Miller)");
+  /* ordered by year ascending */
+  for (let i = 1; i < res.data.length; i++) ok(res.data[i].ReleaseYear >= res.data[i - 1].ReleaseYear, "ordered by year");
+});
+test("runner operators: gte, neq, like, in, is/isNot all evaluate over the data", () => {
+  const m = comicsModel(), rows = comicsRows();
+  eq(C.runQuery(m, { shape: "filter-equals", field: "ReleaseYear", op: "gte", value: "1988" }, rows, {}).data.length, 3, "1988,1989,2012");
+  eq(C.runQuery(m, { shape: "filter-equals", field: "Genre", op: "neq", value: "Superhero" }, rows, {}).data.length, 3, "non-superhero");
+  eq(C.runQuery(m, { shape: "filter-equals", field: "Title", op: "like", value: "man" }, rows, {}).data.length, 1, "Sandman (Watchmen has 'men', not 'man')");
+  eq(C.runQuery(m, { shape: "filter-equals", field: "ReleaseYear", op: "in", value: "1986,2012" }, rows, {}).data.length, 3, "two 1986 + one 2012");
+  eq(C.runQuery(m, { shape: "filter-equals", field: "Author", op: "isNot", value: "" }, rows, {}).data.length, 6, "all have an author");
+});
+test("runner is reachable from the UI Run button and renders a results table", () => {
+  const f = freshUI();
+  f.QL.setJson(COMICS_SAMPLE);
+  f.QL.addQuery();
+  f.QL.setRow(0, "field", "ReleaseYear");
+  f.QL.setRow(0, "op", "lt");
+  f.QL.setRow(0, "value", "2000");
+  f.QL.runQueries();
+  const runHtml = f.els["ql-run"].innerHTML;
+  includes(runHtml, "5 results", "the run panel shows the five matching rows");
+  includes(runHtml, "Watchmen", "a matching row is rendered in the table");
 });

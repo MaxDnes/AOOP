@@ -689,32 +689,83 @@
     return csString(value);
   }
 
+  /* Supabase-style comparison operators for the scalar filter row.
+     Keys mirror PostgREST: eq, neq, gt, gte, lt, lte, like (contains), ilike
+     (case-insensitive contains), in (value in a set), is (== null), isNot
+     (!= null). Legacy rows carried only match:"null"/"equals"; they migrate to
+     op "is"/"eq" so old saved queries keep working byte-for-byte. */
+  var FILTER_OPS = ["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "in", "is", "isNot"];
+  var CMP_SYMBOL = { eq: "==", neq: "!=", gt: ">", gte: ">=", lt: "<", lte: "<=" };
+  function filterOp(row) {
+    if (row && row.op && CMP_SYMBOL[row.op] !== undefined) return row.op;
+    if (row && (row.op === "like" || row.op === "ilike" || row.op === "in" || row.op === "is" || row.op === "isNot")) return row.op;
+    /* legacy / unset: a null-match becomes "is", everything else "eq" */
+    return isNullMatch(row) ? "is" : "eq";
+  }
+  /* the C# comparison value for an order operator (gt/gte/lt/lte) or eq/neq,
+     typed by the field base so a numeric/date column never gets a string literal. */
+  function compareLiteral(base, value) {
+    if (base === "DateTime") return "DateTime.Parse(" + csString(value) + ")";
+    var num = equalsLiteral(base === "double" ? "double" : "int", value);
+    if (num !== null) return num;
+    return null;   /* not a clean numeric/date literal */
+  }
+
   function genFilterEquals(model, row, overrides) {
     var f = findRootField(model, row.field);
     var ref = fieldRef(model, row.field, overrides);
     var base = rootEffectiveBase(model, f, overrides);
-    /* null/empty match mode: emit a bare `field == null` (no quotes), the only
-       correct test for a missing scalar. A CSV empty cell deserializes to null
-       (the parser does `v.Length == 0 ? null : v`), so the "is empty/missing"
-       query MUST be `== null`, never `== ""`. Triggered by an explicit match
-       mode ("null"/"empty") or a row whose value is the JS null literal. Pure
-       addition: no existing filter-equals row sets these, so the happy path is
-       byte-unchanged. */
-    if (isNullMatch(row)) {
-      return { expr: "source\n    .Where(s => " + ref + " == null)\n    .ToList()" };
-    }
-    var typedLit = (base === "string" || base === "DateTime") ? null : equalsLiteral(base, row.value);
+    var op = filterOp(row);
+    var isString = (base === "string");
     var cmp;
-    if (typedLit !== null) {
-      /* bool / numeric column: a typed `==` literal. Case-insensitive is a
-         string-only notion (string.Equals(...)) and does not apply here. */
-      cmp = ref + " == " + typedLit;
+
+    if (op === "is") {
+      /* null/empty: a CSV empty cell deserializes to null, so the only correct
+         "is empty/missing" test is `== null`, never `== ""`. */
+      cmp = ref + " == null";
+    } else if (op === "isNot") {
+      cmp = ref + " != null";
+    } else if (op === "like" || op === "ilike") {
+      var lv = csString(row.value);
+      cmp = (op === "ilike" || row.caseInsensitive)
+        ? "(" + ref + " ?? \"\").Contains(" + lv + ", StringComparison.OrdinalIgnoreCase)"
+        : "(" + ref + " ?? \"\").Contains(" + lv + ")";
+    } else if (op === "in") {
+      /* value-in-a-set as an OR chain — compiles for any type and nullability,
+         unlike `new[]{...}.Contains(nullable)`. */
+      var parts = String(row.value == null ? "" : row.value).split(",")
+        .map(function (s) { return s.trim(); }).filter(function (s) { return s.length; });
+      if (!parts.length) { cmp = "false"; }
+      else {
+        cmp = "(" + parts.map(function (p) {
+          var lit = (isString || base === "DateTime") ? null : equalsLiteral(base, p);
+          return ref + " == " + (lit !== null ? lit : csString(p));
+        }).join(" || ") + ")";
+      }
+    } else if (op === "eq" || op === "neq") {
+      var symbol = (op === "neq") ? "!=" : "==";
+      if (isNullMatch(row)) { cmp = ref + " " + symbol + " null"; }
+      else {
+        /* bool/int/double get a typed literal (true / 7 / 3.5); string + DateTime
+           fall to the quoted/string path, matching the original equals behaviour
+           so a bool column never becomes `== "true"` (CS0019). */
+        var typedLit = (isString) ? null : equalsLiteral(base, row.value);
+        if (typedLit !== null) { cmp = ref + " " + symbol + " " + typedLit; }
+        else {
+          var val = csString(row.value);
+          if (row.caseInsensitive) {
+            cmp = (op === "neq" ? "!" : "") + "string.Equals(" + ref + ", " + val + ", StringComparison.OrdinalIgnoreCase)";
+          } else { cmp = ref + " " + symbol + " " + val; }
+        }
+      }
     } else {
-      var val = csString(row.value);
-      if (row.caseInsensitive) {
-        cmp = "string.Equals(" + ref + ", " + val + ", StringComparison.OrdinalIgnoreCase)";
+      /* gt / gte / lt / lte */
+      var sym = CMP_SYMBOL[op] || ">";
+      if (isString) {
+        cmp = "string.Compare(" + ref + " ?? \"\", " + csString(row.value) + ", StringComparison.Ordinal) " + sym + " 0";
       } else {
-        cmp = ref + " == " + val;
+        var lit2 = compareLiteral(base, row.value);
+        cmp = ref + " " + sym + " " + (lit2 !== null ? lit2 : csString(row.value));
       }
     }
     return { expr: "source\n    .Where(s => " + cmp + ")\n    .ToList()" };
@@ -867,8 +918,16 @@
       }
       valueExpr = "g." + agg + "(x => " + subExpr + ")";
     }
+    /* optional sort of the grouped result (the exam's "sorted by most …"):
+       valueDesc / valueAsc on the aggregate, keyAsc / keyDesc on the group key.
+       Unset = no OrderBy (byte-unchanged). */
+    var order = "";
+    if (row.sort === "valueDesc") order = "\n    .OrderByDescending(x => x.Value)";
+    else if (row.sort === "valueAsc") order = "\n    .OrderBy(x => x.Value)";
+    else if (row.sort === "keyAsc") order = "\n    .OrderBy(x => x.Key)";
+    else if (row.sort === "keyDesc") order = "\n    .OrderByDescending(x => x.Key)";
     var expr = "source\n    .GroupBy(s => " + groupKey + ")\n" +
-      "    .Select(g => new { Key = g.Key, Value = " + valueExpr + " })\n    .ToList()";
+      "    .Select(g => new { Key = g.Key, Value = " + valueExpr + " })" + order + "\n    .ToList()";
     return { expr: expr };
   }
 
@@ -968,8 +1027,41 @@
     };
   }
 
+  /* For each group of field A, the most (or least) frequent value of field B,
+     ordered by A. Covers "per year, the author who wrote the most comics":
+     GroupBy(year) -> within each year GroupBy(author), take the biggest by count.
+     direction "desc" (default) = most frequent; "asc" = least frequent. */
+  function genMostFrequentPerGroup(model, row, overrides) {
+    var fA = findRootField(model, row.field);
+    var fB = findRootField(model, row.subField);
+    var baseA = rootEffectiveBase(model, fA, overrides);
+    var baseB = rootEffectiveBase(model, fB, overrides);
+    var aName = fA ? fA.property : pascal(row.field);
+    var bName = fB ? fB.property : pascal(row.subField);
+    var keyA = "s." + aName + (baseA === "string" ? " ?? \"Unknown\"" : (fA && fA.nullable ? " ?? 0" : ""));
+    var keyB = "c." + bName + (baseB === "string" ? " ?? \"Unknown\"" : (fB && fB.nullable ? " ?? 0" : ""));
+    var pick = row.direction === "asc" ? "OrderBy" : "OrderByDescending";
+    var countAgg = row.direction === "asc" ? "Min" : "Max";
+    var expr =
+      "source\n" +
+      "    .GroupBy(s => " + keyA + ")\n" +
+      "    .OrderBy(g => g.Key)\n" +
+      "    .Select(g => new\n" +
+      "    {\n" +
+      "        " + aName + " = g.Key,\n" +
+      "        " + bName + " = g.GroupBy(c => " + keyB + ")\n" +
+      "            ." + pick + "(grp => grp.Count())\n" +
+      "            .ThenBy(grp => grp.Key)\n" +
+      "            .First().Key,\n" +
+      "        Count = g.GroupBy(c => " + keyB + ")." + countAgg + "(grp => grp.Count())\n" +
+      "    })\n" +
+      "    .ToList()";
+    return { expr: expr };
+  }
+
   var SHAPES = {
-    "filter-equals": { gen: genFilterEquals, label: "filter (field equals value)" },
+    "filter-equals": { gen: genFilterEquals, label: "filter (compare a field)" },
+    "most-frequent-per-group": { gen: genMostFrequentPerGroup, label: "per group: most/least frequent value" },
     "filter-contains": { gen: genFilterContains, label: "filter (field/collection contains value)" },
     "filter-empty-collection": { gen: genFilterEmptyCollection, label: "filter (collection empty or missing)" },
     "filter-nested-any": { gen: genFilterNestedAny, label: "filter (nested collection Any)" },
@@ -1512,6 +1604,304 @@
     return { ok: true, model: parsed.model, program: files.program, models: files.models };
   }
 
+  /* ===================== runner (execute queries in JS over the data) =====================
+     The codegen emits C#; this evaluates the SAME query shapes directly on the
+     pasted data so the user can run a query and see results without .NET. Each
+     evaluator mirrors its gen* counterpart. Returns a normalized result:
+       { ok:true, columns:[{key,label}], data:[obj], note?, scalar? } | { ok:false, error } */
+
+  function rqVal(item, field) {
+    if (!field || !item) return null;
+    var v = item[field.key];
+    return (v === undefined) ? null : v;
+  }
+  function rqNum(v) {
+    if (v === null || v === undefined || v === "") return null;
+    var n = Number(v);
+    return isNaN(n) ? null : n;
+  }
+  function rqStr(v) { return (v === null || v === undefined) ? "" : String(v); }
+  function rqIsEmpty(v) { return v === null || v === undefined || v === ""; }
+
+  /* the grouping key for a field, mirroring the codegen null-coalesce
+     (string -> "Unknown", other nullable -> 0) */
+  function rqGroupKey(model, field, item, overrides) {
+    var base = rootEffectiveBase(model, field, overrides);
+    var v = rqVal(item, field);
+    if (base === "string") return rqIsEmpty(v) ? "Unknown" : String(v);
+    if (rqIsEmpty(v)) return (field && field.nullable) ? 0 : v;
+    return v;
+  }
+  function rqColumnsForRoot(model) {
+    var root = model.byName[model.rootClass];
+    if (!root) return [];
+    return root.fields.map(function (f) { return { key: f.key, label: f.property }; });
+  }
+
+  /* evaluate a single scalar-filter predicate (the Supabase operators) on one item */
+  function rqEvalFilter(model, row, item, overrides) {
+    var f = findRootField(model, row.field);
+    var base = rootEffectiveBase(model, f, overrides);
+    var v = rqVal(item, f);
+    var op = filterOp(row);
+    var numeric = (base === "int" || base === "double" || base === "long");
+
+    if (op === "is") return rqIsEmpty(v);
+    if (op === "isNot") return !rqIsEmpty(v);
+    if (op === "like" || op === "ilike") {
+      var hay = rqStr(v), needle = rqStr(row.value);
+      if (op === "ilike" || row.caseInsensitive) { hay = hay.toLowerCase(); needle = needle.toLowerCase(); }
+      return needle === "" ? true : hay.indexOf(needle) !== -1;
+    }
+    if (op === "in") {
+      var parts = rqStr(row.value).split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s.length; });
+      if (!parts.length) return false;
+      if (base === "string" || base === "DateTime") return parts.indexOf(rqStr(v)) !== -1;
+      var nv = rqNum(v);
+      return nv !== null && parts.some(function (p) { return rqNum(p) === nv; });
+    }
+    if (op === "eq" || op === "neq") {
+      var eq;
+      if (isNullMatch(row)) eq = rqIsEmpty(v);
+      else if (numeric) { var a = rqNum(v), b = rqNum(row.value); eq = (a !== null && b !== null && a === b); }
+      else if (base === "bool") eq = (rqStr(v).toLowerCase() === rqStr(row.value).toLowerCase());
+      else { var sa = rqStr(v), sb = rqStr(row.value); if (row.caseInsensitive) { sa = sa.toLowerCase(); sb = sb.toLowerCase(); } eq = (sa === sb); }
+      return op === "eq" ? eq : !eq;
+    }
+    /* gt / gte / lt / lte */
+    var c;
+    if (numeric || base === "DateTime") {
+      var x = base === "DateTime" ? Date.parse(rqStr(v)) : rqNum(v);
+      var y = base === "DateTime" ? Date.parse(rqStr(row.value)) : rqNum(row.value);
+      if (x === null || y === null || (typeof x === "number" && isNaN(x)) || (typeof y === "number" && isNaN(y))) return false;
+      c = x < y ? -1 : (x > y ? 1 : 0);
+    } else {
+      var s1 = rqStr(v), s2 = rqStr(row.value);
+      c = s1 < s2 ? -1 : (s1 > s2 ? 1 : 0);
+    }
+    return op === "gt" ? c > 0 : op === "gte" ? c >= 0 : op === "lt" ? c < 0 : c <= 0;
+  }
+
+  /* root-level predicate for a compound andWhere spec, mirroring rootPredicate() */
+  function rqEvalRootPred(model, spec, item, overrides) {
+    if (!spec || !spec.field) return true;
+    var f = findRootField(model, spec.field);
+    var v = rqVal(item, f);
+    var op = spec.op || "equals";
+    if (op === "null") return rqIsEmpty(v);
+    if (op === "notNull") return !rqIsEmpty(v);
+    var base = rootEffectiveBase(model, f, overrides);
+    var eq = (base === "int" || base === "double" || base === "long")
+      ? (rqNum(v) !== null && rqNum(v) === rqNum(spec.value))
+      : (rqStr(v) === rqStr(spec.value));
+    return (op === "notEquals" || op === "!=") ? !eq : eq;
+  }
+
+  function rqCompareKeys(a, b) {
+    if (a === null || a === undefined) a = "";
+    if (b === null || b === undefined) b = "";
+    if (typeof a === "number" && typeof b === "number") return a - b;
+    var sa = String(a), sb = String(b);
+    return sa < sb ? -1 : (sa > sb ? 1 : 0);
+  }
+
+  /* sort key for sort-by / top-n (byCount on a collection -> its length) */
+  function rqSortKey(model, row, item, overrides) {
+    var f = findRootField(model, row.field);
+    if (row.byCount && f && f.isCollection) {
+      var arr = rqVal(item, f);
+      return Array.isArray(arr) ? arr.length : 0;
+    }
+    var v = rqVal(item, f);
+    var base = rootEffectiveBase(model, f, overrides);
+    if (base === "int" || base === "double" || base === "long") { var n = rqNum(v); return n === null ? -Infinity : n; }
+    return rqStr(v);
+  }
+
+  function runQuery(model, row, rows, overrides) {
+    overrides = overrides || {};
+    rows = Array.isArray(rows) ? rows : [];
+    var shape = row.shape;
+    try {
+      if (shape === "filter-equals") {
+        var out = rows.filter(function (it) { return rqEvalFilter(model, row, it, overrides); });
+        return { ok: true, columns: rqColumnsForRoot(model), data: out };
+      }
+      if (shape === "filter-contains") {
+        var f = findRootField(model, row.field);
+        var needle = rqStr(row.value), ci = !!row.caseInsensitive;
+        var match = function (cell) {
+          var h = rqStr(cell), nd = needle;
+          if (ci) { h = h.toLowerCase(); nd = nd.toLowerCase(); }
+          return nd === "" ? true : h.indexOf(nd) !== -1;
+        };
+        var res = rows.filter(function (it) {
+          var v = rqVal(it, f);
+          if (f && f.isCollection) return Array.isArray(v) && v.some(match);
+          return match(v);
+        });
+        return { ok: true, columns: rqColumnsForRoot(model), data: res };
+      }
+      if (shape === "filter-empty-collection") {
+        var cf = findRootField(model, row.field);
+        var r2 = rows.filter(function (it) { var v = rqVal(it, cf); return !Array.isArray(v) || v.length === 0; });
+        return { ok: true, columns: rqColumnsForRoot(model), data: r2 };
+      }
+      if (shape === "filter-nested-any") {
+        var coll = findRootField(model, row.collection);
+        var nf = nestedField(model, row.collection, row.subField);
+        var mode = row.match || "equals";
+        var r3 = rows.filter(function (it) {
+          if (!rqEvalRootPred(model, row.andWhere, it, overrides)) return false;
+          var arr = rqVal(it, coll);
+          if (!Array.isArray(arr)) return false;
+          return arr.some(function (el) {
+            var sv = nf && el ? el[nf.key] : (el && el[row.subField]);
+            if (mode === "null") return rqIsEmpty(sv);
+            if (mode === "year") { var y = parseInt(rqStr(sv).slice(0, 4), 10); return y === (parseInt(row.value, 10) || 0); }
+            return rqStr(sv) === rqStr(row.value);
+          });
+        });
+        return { ok: true, columns: rqColumnsForRoot(model), data: r3 };
+      }
+      if (shape === "sort-by" || shape === "top-n") {
+        var dir = row.direction === "asc" ? 1 : -1;
+        var sorted = rows.slice().sort(function (a, b) {
+          var c = rqCompareKeys(rqSortKey(model, row, a, overrides), rqSortKey(model, row, b, overrides)) * dir;
+          if (c === 0 && row.thenBy) {
+            var tf = findRootField(model, row.thenBy);
+            c = rqCompareKeys(rqVal(a, tf), rqVal(b, tf)) * (row.thenDirection === "desc" ? -1 : 1);
+          }
+          return c;
+        });
+        if (shape === "top-n") sorted = sorted.slice(0, parseInt(row.n, 10) || 5);
+        return { ok: true, columns: rqColumnsForRoot(model), data: sorted };
+      }
+      if (shape === "group-aggregate") {
+        var gf = findRootField(model, row.field);
+        var agg = row.aggregate || "Count";
+        var groups = {};
+        var order = [];
+        rows.forEach(function (it) {
+          var k = rqGroupKey(model, gf, it, overrides);
+          var kk = String(k);
+          if (!groups[kk]) { groups[kk] = { key: k, items: [] }; order.push(kk); }
+          groups[kk].items.push(it);
+        });
+        var sf = row.subField ? findRootField(model, row.subField) : null;
+        var subVal = function (it) {
+          if (row.subCount && sf) { var arr = rqVal(it, sf); return Array.isArray(arr) ? arr.length : 0; }
+          var n = rqNum(rqVal(it, sf)); return n === null ? 0 : n;
+        };
+        var data = order.map(function (kk) {
+          var g = groups[kk], value;
+          if (agg === "Count") value = g.items.length;
+          else {
+            var nums = g.items.map(subVal);
+            if (agg === "Average") value = nums.length ? nums.reduce(function (s, n) { return s + n; }, 0) / nums.length : 0;
+            else if (agg === "Max") value = nums.length ? Math.max.apply(null, nums) : 0;
+            else value = nums.length ? Math.min.apply(null, nums) : 0;
+          }
+          return { Key: g.key, Value: value };
+        });
+        if (row.sort === "valueDesc") data.sort(function (a, b) { return b.Value - a.Value; });
+        else if (row.sort === "valueAsc") data.sort(function (a, b) { return a.Value - b.Value; });
+        else if (row.sort === "keyAsc") data.sort(function (a, b) { return rqCompareKeys(a.Key, b.Key); });
+        else if (row.sort === "keyDesc") data.sort(function (a, b) { return rqCompareKeys(b.Key, a.Key); });
+        return { ok: true, columns: [{ key: "Key", label: (gf ? gf.property : "Key") }, { key: "Value", label: agg }], data: data };
+      }
+      if (shape === "most-frequent-per-group") {
+        var fA = findRootField(model, row.field), fB = findRootField(model, row.subField);
+        var aName = fA ? fA.property : pascal(row.field), bName = fB ? fB.property : pascal(row.subField);
+        var groupsA = {}, orderA = [];
+        rows.forEach(function (it) {
+          var k = rqGroupKey(model, fA, it, overrides), kk = String(k);
+          if (!groupsA[kk]) { groupsA[kk] = { key: k, items: [] }; orderA.push(kk); }
+          groupsA[kk].items.push(it);
+        });
+        var least = row.direction === "asc";
+        var dataA = orderA.map(function (kk) {
+          var g = groupsA[kk], counts = {}, ord = [];
+          g.items.forEach(function (it) {
+            var bk = String(rqGroupKey(model, fB, it, overrides));
+            if (counts[bk] === undefined) { counts[bk] = 0; ord.push(bk); }
+            counts[bk]++;
+          });
+          ord.sort(function (x, y) { return least ? (counts[x] - counts[y] || (x < y ? -1 : 1)) : (counts[y] - counts[x] || (x < y ? -1 : 1)); });
+          var top = ord[0];
+          var rec = {};
+          rec[aName] = g.key; rec[bName] = top; rec.Count = top === undefined ? 0 : counts[top];
+          return rec;
+        }).sort(function (a, b) { return rqCompareKeys(a[aName], b[aName]); });
+        return { ok: true, columns: [{ key: aName, label: aName }, { key: bName, label: bName }, { key: "Count", label: "Count" }], data: dataA };
+      }
+      if (shape === "above-average") {
+        var af = findRootField(model, row.field);
+        var byCount = row.byCount && af && af.isCollection;
+        var per = function (it) {
+          if (byCount) { var arr = rqVal(it, af); return Array.isArray(arr) ? arr.length : 0; }
+          var n = rqNum(rqVal(it, af)); return n;
+        };
+        var present = rows.map(per).filter(function (n) { return n !== null && n !== undefined; });
+        if (!byCount && !row.excludeNull) present = rows.map(function (it) { var n = per(it); return n === null ? 0 : n; });
+        var avg = present.length ? present.reduce(function (s, n) { return s + n; }, 0) / present.length : 0;
+        var above = rows.filter(function (it) { var n = per(it); return n !== null && n > avg; });
+        return { ok: true, columns: rqColumnsForRoot(model), data: above, note: "list average = " + (Math.round(avg * 100) / 100) };
+      }
+      if (shape === "select-fields") {
+        var fields = (row.fields || []).filter(Boolean);
+        if (!fields.length) { var root = model.byName[model.rootClass]; fields = root ? root.fields.slice(0, 2).map(function (f) { return f.key; }) : []; }
+        var cols = fields.map(function (k) { var ff = findRootField(model, k); return { key: k, label: ff ? ff.property : pascal(k) }; });
+        var proj = rows.map(function (it) { var o = {}; cols.forEach(function (c) { o[c.key] = rqVal(it, findRootField(model, c.key)); }); return o; });
+        return { ok: true, columns: cols, data: proj };
+      }
+      if (shape === "binary-search") {
+        var bf = findRootField(model, row.field);
+        var sortedB = rows.slice().sort(function (a, b) { return rqCompareKeys(rqStr(rqVal(a, bf)), rqStr(rqVal(b, bf))); });
+        var idx = -1;
+        for (var i = 0; i < sortedB.length; i++) { if (rqStr(rqVal(sortedB[i], bf)) === rqStr(row.value)) { idx = i; break; } }
+        return {
+          ok: true, scalar: true, columns: rqColumnsForRoot(model),
+          data: idx >= 0 ? [sortedB[idx]] : [],
+          note: idx >= 0 ? ("found at sorted index " + idx) : ("\"" + rqStr(row.value) + "\" not found"),
+        };
+      }
+      return { ok: false, error: "This query shape can't be run yet: " + esc(shape) };
+    } catch (e) {
+      return { ok: false, error: "Run error: " + (e && e.message ? e.message : String(e)) };
+    }
+  }
+
+  /* parse pasted text into the raw data rows (objects) the runner consumes */
+  function extractRows(text) {
+    var raw = String(text == null ? "" : text).trim();
+    if (!raw) return { ok: false, error: "Paste JSON or CSV first." };
+    var firstChar = raw.charAt(0);
+    if (firstChar === "[" || firstChar === "{") {
+      try {
+        var parsed = JSON.parse(raw);
+        var ex = extractArray(parsed);
+        return { ok: true, rows: (ex.items || []).filter(function (x) { return x && typeof x === "object"; }) };
+      } catch (e) { /* fall through to CSV */ }
+    }
+    if (looksLikeCsv(raw)) {
+      var records = parseCsvRecords(raw);
+      if (records && records.length >= 2) {
+        var headers = records[0].map(function (h) { return String(h == null ? "" : h).trim(); });
+        var objs = records.slice(1).map(function (r) {
+          var o = {};
+          headers.forEach(function (h, i) {
+            var c = r[i];
+            o[h] = (c === undefined || c === null || String(c).length === 0) ? null : c;
+          });
+          return o;
+        });
+        return { ok: true, rows: objs };
+      }
+    }
+    return { ok: false, error: "Could not read data rows (invalid JSON / CSV)." };
+  }
+
   /* ===================== export ===================== */
 
   var CORE = {
@@ -1531,6 +1921,10 @@
     /* shapes */
     SHAPES: SHAPES,
     shapeKeys: shapeKeys,
+    FILTER_OPS: FILTER_OPS,
+    /* runner */
+    runQuery: runQuery,
+    extractRows: extractRows,
     /* presets */
     presets: presets,
     summerPreset: summerPreset,

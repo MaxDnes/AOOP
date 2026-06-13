@@ -86,6 +86,23 @@ or copy `scripts\nuget.offline.config` next to the `.sln` and rename it `nuget.c
 > family; two ListBoxes + Generate + meal plan -> ReExam family), then adapt the
 > matching model solution.
 
+### Two rescue tabs for when you paste generated code into the exam's project
+
+The solver tools generate code under the placeholder namespace `ExamApp`. The exam
+ships a project with its OWN name. Two companion tabs close that gap, both 100% offline:
+
+- **Adapt Lab** - paste the generated file + your project's name (or one starter file)
+  and it rewrites every namespace / `x:Class` / `xmlns:vm` / class name so the code
+  drops in with no renaming. Pasting a starter file also lists the project's *provided
+  instances* (e.g. `MealPlanner`) and control `x:Name`s, so you bind to the exact names.
+- **Error Decoder** - if the build goes red, paste the error text and it gives the
+  cause, the exact fix, and which file to touch (missing `using`, the `_count` vs
+  `Count` trap, nullable JSON fields, "invalid thread", headless `[AvaloniaFact]`,
+  the offline NuGet restore, and more). No internet, no AI - just the fix.
+
+Workflow when a tool's output won't compile: **Adapt Lab first** (names), then if it's
+still red, **Error Decoder** (paste the message).
+
 ---
 
 ## ⚠️ KNOWN FILENAME-MISMATCH TRAP (read before Problem 3)

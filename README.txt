@@ -5,8 +5,8 @@ How to run: double-click index.html. It opens in any browser, 100% offline -
 no server, no internet, no install, no AI. Everything is plain HTML/CSS/JS.
 
 
-THE TEN TOOLS  (top of the sidebar, "Exam Day" group; also on the home screen)
--------------------------------------------------------------------------------
+THE TWELVE TOOLS  (top of the sidebar, "Exam Day" group; also on the home screen)
+---------------------------------------------------------------------------------
 
 EXAM GUIDE      The 4-hour plan, tool by tool. The orientation tab: it maps each
                 exam problem to the tool that solves it (P1 -> Analysis Lab, P2 ->
@@ -146,6 +146,35 @@ MVVM CONVERTER  Paste a CodeBehind MainWindow.axaml + MainWindow.axaml.cs and it
                 Problem_3_MainWindow.axaml + MainWindowViewModel.cs. A reverse
                 MVVM -> CodeBehind direction exists as a study aid (not for hand-in).
                 This is the tool for the "convert this project to MVVM" UI task.
+
+ADAPT LAB       Paste a file your other tools generated (it still says the
+                placeholder name ExamApp) and tell it your real exam project -
+                type the project name OR paste one of the starter files - and it
+                rewrites every namespace, x:Class, xmlns:vm and class name so the
+                code drops into THAT project with no renaming and no red errors.
+                Reading a starter file also surfaces the project's provided
+                instances (e.g. MealPlanner, ShoppingListGenerator) and its control
+                x:Names, so you bind to the exact names the grader's project
+                already has. An optional rename table maps anything the auto-pass
+                can't know (a generated property -> a provided instance, a differing
+                class name). It reports every change it made. This is the bridge
+                between the generic code the solver tools emit and the specific
+                starter project the exam ships - the #1 thing that otherwise breaks
+                when you paste generated code into the exam's project.
+
+ERROR DECODER   The offline answer to "it went red, now what." A hand-written
+                lookup of the build and runtime errors that actually happen in this
+                stack (.NET 9, Avalonia, CommunityToolkit.Mvvm, xUnit + headless,
+                System.Text.Json): missing usings (CS0246), the generated-name trap
+                (bind to Count / AddCommand, not _count / Add), nullable JSON fields
+                (CS8618), "Call from invalid thread", the headless [AvaloniaFact]
+                setup, "no tests found", the offline NuGet restore ("unable to load
+                the service index"), NullReferenceException from a missing JSON
+                field, binary search on an unsorted list, and ~25 more. Paste the
+                red error text and it ranks the matching entries; each gives the
+                plain-English cause, the exact fix, and which file to touch. Or
+                search by code/keyword, or browse by category. No internet, no AI -
+                just the fix.
 
 QUIZ            100+ hand-written questions across every exam topic. Modes: all
                 shuffled, weak-topics-first, a 10-question sprint, a weak sprint,

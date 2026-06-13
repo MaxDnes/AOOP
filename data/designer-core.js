@@ -13,7 +13,10 @@
     ];
   }
   function sizeProps() {
-    return [{ name: "Width", kind: "number" }, { name: "Height", kind: "number" }];
+    return [
+      { name: "Width", kind: "number", bindable: true, vmType: "double" },
+      { name: "Height", kind: "number", bindable: true, vmType: "double" },
+    ];
   }
 
   /* ---------------- catalog ---------------- */
@@ -291,25 +294,27 @@
       group: "Shapes", container: false, icon: "▮",
       defaultProps: {},
       props: [
-        { name: "Width", kind: "number" },
-        { name: "Height", kind: "number" },
-        { name: "Fill", kind: "color", bindable: true, vmType: "string" },
+        { name: "Width", kind: "number", bindable: true, vmType: "double" },
+        { name: "Height", kind: "number", bindable: true, vmType: "double" },
+        { name: "Fill", kind: "color", bindable: true, vmType: "brush" },
         { name: "Stroke", kind: "color" },
         { name: "StrokeThickness", kind: "number" },
         { name: "RadiusX", kind: "number" },
         { name: "RadiusY", kind: "number" },
-      ],
+        { name: "Margin", kind: "thickness" },
+      ].concat(alignProps()),
     },
     Ellipse: {
       group: "Shapes", container: false, icon: "◯",
       defaultProps: {},
       props: [
-        { name: "Width", kind: "number" },
-        { name: "Height", kind: "number" },
-        { name: "Fill", kind: "color", bindable: true, vmType: "string" },
+        { name: "Width", kind: "number", bindable: true, vmType: "double" },
+        { name: "Height", kind: "number", bindable: true, vmType: "double" },
+        { name: "Fill", kind: "color", bindable: true, vmType: "brush" },
         { name: "Stroke", kind: "color" },
         { name: "StrokeThickness", kind: "number" },
-      ],
+        { name: "Margin", kind: "thickness" },
+      ].concat(alignProps()),
     },
     Line: {
       group: "Shapes", container: false, icon: "╱",
@@ -319,36 +324,78 @@
         { name: "EndPoint", kind: "text" },
         { name: "Stroke", kind: "color" },
         { name: "StrokeThickness", kind: "number" },
-      ],
+        { name: "Margin", kind: "thickness" },
+      ].concat(alignProps()),
     },
     Polygon: {
       group: "Shapes", container: false, icon: "△",
       defaultProps: { Points: "0,40 40,0 80,40" },
       props: [
         { name: "Points", kind: "text" },
-        { name: "Fill", kind: "color", bindable: true, vmType: "string" },
+        { name: "Fill", kind: "color", bindable: true, vmType: "brush" },
         { name: "Stroke", kind: "color" },
         { name: "StrokeThickness", kind: "number" },
-      ],
+        { name: "Margin", kind: "thickness" },
+      ].concat(alignProps()),
     },
     Path: {
       group: "Shapes", container: false, icon: "∿",
       defaultProps: { Data: "M 0,0 L 40,40" },
       props: [
         { name: "Data", kind: "text" },
-        { name: "Fill", kind: "color", bindable: true, vmType: "string" },
+        { name: "Fill", kind: "color", bindable: true, vmType: "brush" },
         { name: "Stroke", kind: "color" },
         { name: "StrokeThickness", kind: "number" },
-      ],
+        { name: "Margin", kind: "thickness" },
+      ].concat(alignProps()),
     },
   };
 
   const PALETTE_GROUPS = [
-    { name: "Layout", types: ["StackPanel", "Grid", "DockPanel", "WrapPanel", "Border", "ScrollViewer", "Canvas"] },
-    { name: "Containers", types: ["TabControl", "TabItem", "Expander", "Separator"] },
-    { name: "Controls", types: ["Button", "TextBox", "TextBlock", "CheckBox", "RadioButton", "Slider", "ComboBox", "ListBox", "ItemsControl", "ProgressBar", "Image", "ToggleSwitch", "NumericUpDown"] },
-    { name: "Shapes", types: ["Rectangle", "Ellipse", "Line", "Polygon", "Path"] },
+    { name: "Layout", hint: "arrange things on screen", types: ["StackPanel", "Grid", "DockPanel", "WrapPanel", "Border", "ScrollViewer", "Canvas"] },
+    { name: "Containers", hint: "sections, tabs & dividers", types: ["TabControl", "TabItem", "Expander", "Separator"] },
+    { name: "Controls", hint: "buttons, text & inputs", types: ["Button", "TextBox", "TextBlock", "CheckBox", "RadioButton", "Slider", "ComboBox", "ListBox", "ItemsControl", "ProgressBar", "Image", "ToggleSwitch", "NumericUpDown"] },
+    { name: "Shapes", hint: "draw rectangles, circles, lines", types: ["Rectangle", "Ellipse", "Line", "Polygon", "Path"] },
   ];
+
+  /* Plain-English one-liner for every palette control, shown under its real
+     Avalonia name so a beginner knows what each one does (and still learns the
+     real type name for the exam). Keyed by catalog type. */
+  const PLAIN = {
+    // Layout
+    StackPanel: "stacks items in a row or column",
+    Grid: "rows & columns, like a table",
+    DockPanel: "pins items to an edge (top / side / bottom)",
+    WrapPanel: "lays items out left-to-right, wrapping to the next line",
+    Border: "a frame or coloured box around one item",
+    ScrollViewer: "adds scrollbars when the content is too big",
+    Canvas: "place items freely by x / y position",
+    // Containers
+    TabControl: "tabbed pages (holds the tabs)",
+    TabItem: "one tab page — goes inside a TabControl",
+    Expander: "a section you can fold open and closed",
+    Separator: "a thin divider line between things",
+    // Controls
+    Button: "a button the user clicks",
+    TextBox: "a box the user types text into",
+    TextBlock: "shows a piece of text (a label)",
+    CheckBox: "a tickbox that is on or off",
+    RadioButton: "pick one option out of a group",
+    Slider: "drag a handle to choose a number",
+    ComboBox: "a dropdown list to pick one item",
+    ListBox: "a scrollable list of items to pick from",
+    ItemsControl: "repeats a layout once per item in a list",
+    ProgressBar: "a bar that shows progress (0–100%)",
+    Image: "displays a picture",
+    ToggleSwitch: "an on / off switch",
+    NumericUpDown: "a number box with + / − steppers",
+    // Shapes
+    Rectangle: "a rectangle (corners can be rounded)",
+    Ellipse: "a circle or oval",
+    Line: "a straight line",
+    Polygon: "a shape from several points",
+    Path: "a custom drawn shape",
+  };
 
   const COLORS = [
     "#0B0E14", "#1F2430", "#39BAE6", "#59C2FF", "#7FD962", "#AAD94C", "#E6B450",
@@ -1003,7 +1050,7 @@
       list.push(b);
     });
 
-    const propTypes = { string: "string", "string?": "string?", double: "double", int: "int", bool: "bool" };
+    const propTypes = { string: "string", "string?": "string?", double: "double", int: "int", bool: "bool", brush: "IBrush" };
     const observables = list.filter((b) => propTypes[b.vmType]);
     const collections = list.filter((b) => b.vmType === "collection");
     const selected = list.filter((b) => b.vmType === "selectedItem");
@@ -1059,6 +1106,7 @@
     const needCanvasBounds = (wantAddRandom && collModel && collModel.canvasItems)
       || timerReposition;
     const needBrushUsing = collHasBrush || needPalette
+      || observables.some((b) => b.vmType === "brush")
       || (collections.some((b) => b.model && b.model.fields.some((f) => f.type === "IBrush")));
 
     /* ---- usings ---- */
@@ -1110,7 +1158,7 @@
     observables.forEach((b) => {
       let type = propTypes[b.vmType];
       if (wantCounter && b.name === "Count") type = "int";
-      const init = type === "string" ? ' = "";' : ";";
+      const init = type === "string" ? ' = "";' : (type === "IBrush" ? " = Brushes.Gray;" : ";");
       blocks.push("    [ObservableProperty]\n    private " + type + " " + camel(b.name) + init);
     });
 
@@ -1491,7 +1539,7 @@
   }
 
   /* ---------------- export ---------------- */
-  const CORE = { CATALOG, PALETTE_GROUPS, COLORS, createNode, findNode, findParent,
+  const CORE = { CATALOG, PALETTE_GROUPS, PLAIN, COLORS, createNode, findNode, findParent,
                  canContain, addChild, removeNode, moveNode, walk, generate,
                  submission, foreignUsings,
                  syncIdSeq, cloneSubtree, placeAtCanvasPoint, serialize, deserialize,

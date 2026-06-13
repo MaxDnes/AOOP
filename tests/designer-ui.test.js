@@ -339,3 +339,14 @@ test("preset submission VM contains only allowed-library usings", () => {
     eq(sub.files.length, 2, "two-file flat pair for " + name);
   });
 });
+
+/* per-side Margin editor: the handler composes the four sides into a thickness string */
+test("DSG.setThicknessSide exists and composes a four-side Margin on the selected node", () => {
+  require("../data/designer.js");
+  ok(typeof global.DSG.setThicknessSide === "function", "missing DSG.setThicknessSide");
+  global.DSG.newDesign();                       // fresh Window selected
+  global.DSG.setThicknessSide("Margin", 0, "10");   // Left
+  global.DSG.setThicknessSide("Margin", 2, "20");   // Right
+  const tree = JSON.parse(global.localStorage.getItem("aop-designer-current")).tree;
+  eq(tree.props.Margin, "10,0,20,0", "left + right sides compose into the L,T,R,B string");
+});

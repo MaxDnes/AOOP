@@ -13,6 +13,8 @@
 <link rel="stylesheet" href="guide.css">
 <link rel="stylesheet" href="quiz.css">
 <link rel="stylesheet" href="mvvmconv.css">
+<link rel="stylesheet" href="adapt.css">
+<link rel="stylesheet" href="errors.css">
 </head>
 <body>
   <div class="frame">
@@ -73,6 +75,14 @@
        (submission is plain blobs). Both load before app.js like every tool. -->
   <script src="data/mvvmconv-core.js"></script>
   <script src="data/mvvmconv.js"></script>
+  <!-- Adapt Lab: rewrite the generic "ExamApp" names in generated code to match
+       the exam's real starter project. Core (logic) before UI; no PROJZIP dep. -->
+  <script src="data/adapt-core.js"></script>
+  <script src="data/adapt.js"></script>
+  <!-- Error Decoder: offline KB of the build/runtime errors in this stack, with
+       a paste-the-error matcher. Static data core before its UI. -->
+  <script src="data/errors-core.js"></script>
+  <script src="data/errors.js"></script>
   <!-- guide tool: orientation tab, UI-only (no core file), defines window.GUIDE -->
   <script src="data/guide.js"></script>
   <script src="data/bootcamp.js"></script>

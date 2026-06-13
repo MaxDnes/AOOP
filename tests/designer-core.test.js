@@ -12,6 +12,15 @@ test("catalog covers every spec'd type", () => {
 test("every palette group type exists in catalog", () => {
   C.PALETTE_GROUPS.forEach((g) => g.types.forEach((t) => ok(C.CATALOG[t], t)));
 });
+test("every palette type has a plain-English description, and each group has a hint", () => {
+  C.PALETTE_GROUPS.forEach((g) => {
+    ok(g.hint && g.hint.length > 0, "group missing hint: " + g.name);
+    g.types.forEach((t) => {
+      ok(C.PLAIN && typeof C.PLAIN[t] === "string" && C.PLAIN[t].length > 0,
+        "palette type missing plain description: " + t);
+    });
+  });
+});
 test("containers are flagged", () => {
   ["StackPanel","Grid","DockPanel","WrapPanel","Border","ScrollViewer","Canvas"]
     .forEach((t) => ok(C.CATALOG[t].container, t + " should be container"));
@@ -1177,4 +1186,62 @@ test("G8: an unsized ItemsControl keeps the bare Canvas and 400/300 clamps (byte
   includes(axaml, "<Canvas/>");
   includes(viewModel, "private const double CanvasWidth = 400;");
   includes(viewModel, "private const double CanvasHeight = 300;");
+});
+
+/* ===== margins/alignment, bindable size + brush, and reproducing CircleCodeBehind ===== */
+test("shapes carry Margin + alignment through to the generated AXAML", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const el = C.createNode("Ellipse");
+  el.props.Margin = "10,0,20,0";
+  el.props.HorizontalAlignment = "Center";
+  C.addChild(tree, sp.id, el);
+  const { axaml } = C.generate(tree);
+  includes(axaml, 'Margin="10,0,20,0"');
+  includes(axaml, 'HorizontalAlignment="Center"');
+});
+
+test("Ellipse Width/Height are bindable and a shared binding name dedupes to one property", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const el = C.createNode("Ellipse");
+  el.bindings.Width = "Size"; el.bindings.Height = "Size"; el.bindings.Fill = "CircleFill";
+  C.addChild(tree, sp.id, el);
+  const sl = C.createNode("Slider"); sl.bindings.Value = "Size"; C.addChild(tree, sp.id, sl);
+  const { axaml, viewModel } = C.generate(tree);
+  includes(axaml, 'Width="{Binding Size}"');
+  includes(axaml, 'Height="{Binding Size}"');
+  includes(axaml, 'Fill="{Binding CircleFill}"');
+  const sizeCount = (viewModel.match(/private double size;/g) || []).length;
+  eq(sizeCount, 1, "exactly one double Size property despite three bindings to it");
+  includes(viewModel, "private IBrush circleFill = Brushes.Gray;");
+  includes(viewModel, "using Avalonia.Media;");
+});
+
+test("Visual Designer reproduces the CircleCodeBehind MVVM (bindings + VM members)", () => {
+  const tree = C.createNode("Window");
+  tree.props.Title = "CircleCodeBehind";
+  const sp = C.createNode("StackPanel"); sp.props.Margin = "50"; C.addChild(tree, tree.id, sp);
+  const el = C.createNode("Ellipse");
+  el.bindings.Fill = "CircleFill"; el.bindings.Height = "Size"; el.bindings.Width = "Size";
+  C.addChild(tree, sp.id, el);
+  const cb = C.createNode("ComboBox");
+  cb.bindings.ItemsSource = "Colors"; cb.bindings.SelectedItem = "SelectedColor";
+  C.addChild(tree, sp.id, cb);
+  const sl = C.createNode("Slider"); sl.props.Minimum = 50; sl.props.Maximum = 500; sl.bindings.Value = "Size";
+  C.addChild(tree, sp.id, sl);
+  const btn = C.createNode("Button"); btn.props.Content = "Reset"; btn.bindings.Command = "ResetCommand";
+  C.addChild(tree, sp.id, btn);
+  const tb = C.createNode("TextBlock"); tb.bindings.Text = "Size"; C.addChild(tree, sp.id, tb);
+  const { axaml, viewModel } = C.generate(tree);
+  ['Fill="{Binding CircleFill}"', 'Height="{Binding Size}"', 'Width="{Binding Size}"',
+   'ItemsSource="{Binding Colors}"', 'SelectedItem="{Binding SelectedColor}"',
+   'Value="{Binding Size}"', 'Command="{Binding ResetCommand}"', 'Text="{Binding Size}"']
+    .forEach((frag) => includes(axaml, frag, "axaml missing " + frag));
+  includes(viewModel, "private double size;");
+  includes(viewModel, "selectedColor", "a SelectedColor property (string?) for the combo selection");
+  includes(viewModel, "private IBrush circleFill = Brushes.Gray;");
+  includes(viewModel, "Colors");
+  includes(viewModel, "[RelayCommand]");
+  includes(viewModel, "Reset");
 });

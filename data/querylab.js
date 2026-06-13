@@ -18,12 +18,13 @@ const STORE_VERSION = 1;   /* version-stamped payloads ({v:1, ...}) with gracefu
    build only the relevant dropdowns/inputs. Kept in the UI layer; the core
    owns the actual code generation. */
 const SHAPE_UI = [
-  { key: "filter-equals",          icon: "=",  label: "filter · equals",            needs: ["field", "eqMatch", "value", "ci"] },
+  { key: "filter-equals",          icon: "=",  label: "filter · compare",           needs: ["field", "op", "value", "ci"] },
   { key: "filter-contains",        icon: "∋",  label: "filter · contains",          needs: ["field", "value", "ci"] },
   { key: "filter-empty-collection",icon: "∅",  label: "filter · empty collection",  needs: ["collectionField"] },
   { key: "filter-nested-any",      icon: "⊆",  label: "filter · nested Any",        needs: ["collectionField", "subField", "match", "value", "andWhere"] },
   { key: "sort-by",                icon: "↕",  label: "sort by",                    needs: ["field", "byCount", "nullValue", "direction", "thenBy"] },
-  { key: "group-aggregate",        icon: "Σ",  label: "group + aggregate",          needs: ["field", "aggregate", "subField", "subCount"] },
+  { key: "group-aggregate",        icon: "Σ",  label: "group + aggregate",          needs: ["field", "aggregate", "groupSort"] },
+  { key: "most-frequent-per-group",icon: "★",  label: "per group · most frequent",  needs: ["field", "valueField", "direction"] },
   { key: "above-average",          icon: "x̄",  label: "above average",              needs: ["field", "byCount", "excludeNull"] },
   { key: "top-n",                  icon: "▲",  label: "top N",                      needs: ["field", "byCount", "direction", "n"] },
   { key: "select-fields",          icon: "{}", label: "select fields",              needs: ["multiField"] },
@@ -54,11 +55,36 @@ const EQ_MATCH_MODES = [
 ];
 const AGGREGATES = ["Count", "Average", "Max", "Min"];
 
+/* Supabase-style comparison operators for the scalar filter row. */
+const OPERATORS = [
+  { key: "eq",    label: "= equals" },
+  { key: "neq",   label: "≠ not equals" },
+  { key: "gt",    label: "> greater than" },
+  { key: "gte",   label: "≥ greater or equal" },
+  { key: "lt",    label: "< less than" },
+  { key: "lte",   label: "≤ less or equal" },
+  { key: "like",  label: "∋ contains" },
+  { key: "ilike", label: "∋ contains (ignore case)" },
+  { key: "in",    label: "in (a, b, c)" },
+  { key: "is",    label: "is null / empty" },
+  { key: "isNot", label: "is not null" },
+];
+/* optional sort applied to a group + aggregate result */
+const GROUP_SORTS = [
+  { key: "",          label: "no sort" },
+  { key: "valueDesc", label: "by count · most first" },
+  { key: "valueAsc",  label: "by count · least first" },
+  { key: "keyAsc",    label: "by key · A→Z" },
+  { key: "keyDesc",   label: "by key · Z→A" },
+];
+function currentOp(row) { return row.op || (row.match === "null" ? "is" : "eq"); }
+
 /* ---------------- module state ---------------- */
 let state = null;     // { json, inputFile, outputFile, namespace, rows:[...], overrides:{} }
 let model = null;     // last inferred model (or null)
 let parseError = null;
 let lastCode = "";
+let runResults = null;   // last in-app run output (or null = not run yet)
 let saveTimer = null;
 let genTimer = null;
 let rowSeq = 1;
@@ -135,9 +161,10 @@ function newRow(shape) {
     id: "r" + (rowSeq++),
     shape: shape || "filter-equals",
     field: "", value: "", caseInsensitive: false,
+    op: "eq",                 /* filter-equals: Supabase-style comparison operator */
     collection: "", subField: "", match: "equals",
     byCount: false, direction: "desc", thenBy: "", thenDirection: "asc",
-    aggregate: "Count", subCount: false,
+    aggregate: "Count", subCount: false, sort: "",   /* group-aggregate: optional result sort */
     nullValue: "",            /* sort-by: optional `?? n` coalesce on a nullable key */
     excludeNull: false,       /* above-average: average known values only */
     andWhere: null,           /* filter-nested-any: optional root-level AND predicate { field, value } */
@@ -203,7 +230,10 @@ function nestedFieldsOf(collectionKey) {
 function regenerate() {
   const C = core();
   recompute();
-  if (!model) { lastCode = ""; paintModels(); paintOutput(); return; }
+  /* the data or queries changed — last run is stale, clear the results panel
+     so the user re-runs against the current state rather than reading old rows */
+  runResults = null;
+  if (!model) { lastCode = ""; paintModels(); paintOutput(); paintRun(); return; }
   try {
     lastCode = C.generateProgram(model, state.rows, {
       inputFile: state.inputFile,
@@ -217,6 +247,7 @@ function regenerate() {
   paintModels();
   paintRows();
   paintOutput();
+  paintRun();
 }
 function scheduleRegen() { clearTimeout(genTimer); genTimer = setTimeout(regenerate, 350); }
 
@@ -248,8 +279,11 @@ function render() {
 
   /* RIGHT pane: query rows + output options + generated code */
   h += '<div class="ql-right">';
-  h += '<div class="ql-rows-head"><span>Queries</span><button class="ql-add" onclick="QL.addQuery()">+ add query</button></div>';
+  h += '<div class="ql-rows-head"><span>Queries</span>'
+    + '<button class="ql-run-btn" title="run every query against the pasted data and show the results" onclick="QL.runQueries()">▶ Run on data</button>'
+    + '<button class="ql-add" onclick="QL.addQuery()">+ add query</button></div>';
   h += '<div class="ql-rows" id="ql-rows">' + rowsHTML() + "</div>";
+  h += '<div class="ql-run" id="ql-run">' + runHTML() + "</div>";
   h += '<div class="ql-opts" id="ql-opts">' + optionsHTML() + "</div>";
   h += '<div class="ql-out" id="ql-output">' + outputHTML() + "</div>";
   h += "</div>";
@@ -398,12 +432,25 @@ function rowHTML(row, i) {
   if (needs.indexOf("field") !== -1) {
     h += fieldSelect(row, "field", rootFields(), row.field);
   }
-  /* filter-equals match: == value | == null. In null mode the value box is
-     suppressed (the comparison is to the C# null literal, no value needed). */
-  if (needs.indexOf("eqMatch") !== -1) {
-    h += '<select class="ql-sel" title="compare to a value, or test for null/missing" onchange="QL.setRow(' + i + ', \'match\', this.value)">';
-    EQ_MATCH_MODES.forEach(function (m) {
-      h += '<option value="' + m.key + '"' + (m.key === row.match ? " selected" : "") + ">" + esc(m.label) + "</option>";
+  /* filter-equals: Supabase-style comparison operator (=, ≠, >, ≥, <, ≤,
+     contains, in, is null …). "is"/"isNot" need no value, so the value box is
+     suppressed below. */
+  if (needs.indexOf("op") !== -1) {
+    const curOp = currentOp(row);
+    h += '<select class="ql-sel" title="comparison operator" onchange="QL.setRow(' + i + ', \'op\', this.value)">';
+    OPERATORS.forEach(function (o) {
+      h += '<option value="' + o.key + '"' + (o.key === curOp ? " selected" : "") + ">" + esc(o.label) + "</option>";
+    });
+    h += "</select>";
+  }
+  if (needs.indexOf("valueField") !== -1) {
+    h += '<span class="ql-inline-lab">most of</span>';
+    h += fieldSelect(row, "subField", rootFields(), row.subField);
+  }
+  if (needs.indexOf("groupSort") !== -1) {
+    h += '<select class="ql-sel" title="sort the grouped result" onchange="QL.setRow(' + i + ', \'sort\', this.value)">';
+    GROUP_SORTS.forEach(function (s) {
+      h += '<option value="' + s.key + '"' + (s.key === (row.sort || "") ? " selected" : "") + ">" + esc(s.label) + "</option>";
     });
     h += "</select>";
   }
@@ -435,8 +482,11 @@ function rowHTML(row, i) {
     h += checkbox(i, "byCount", row.byCount, "by collection Count");
   }
   if (needs.indexOf("direction") !== -1) {
+    const dopts = row.shape === "most-frequent-per-group"
+      ? [["desc", "most frequent"], ["asc", "least frequent"]]
+      : [["desc", "descending"], ["asc", "ascending"]];
     h += '<select class="ql-sel" onchange="QL.setRow(' + i + ', \'direction\', this.value)">';
-    [["desc", "descending"], ["asc", "ascending"]].forEach(function (d) {
+    dopts.forEach(function (d) {
       h += '<option value="' + d[0] + '"' + (d[0] === row.direction ? " selected" : "") + ">" + d[1] + "</option>";
     });
     h += "</select>";
@@ -465,10 +515,12 @@ function rowHTML(row, i) {
     h += checkbox(i, "excludeNull", row.excludeNull, "exclude nulls from avg");
   }
   if (needs.indexOf("value") !== -1) {
-    /* hide the value box when a filter-equals row is in null mode (no value needed) */
-    const hideValue = row.shape === "filter-equals" && row.match === "null";
+    /* hide the value box when a filter-equals row needs no value (is null / is not null) */
+    const op = currentOp(row);
+    const hideValue = row.shape === "filter-equals" && (op === "is" || op === "isNot");
     if (!hideValue) {
-      h += '<input class="ql-val" value="' + esc(row.value) + '" placeholder="value" onchange="QL.setRow(' + i + ', \'value\', this.value)">';
+      const ph = (row.shape === "filter-equals" && op === "in") ? "value, value, value" : "value";
+      h += '<input class="ql-val" value="' + esc(row.value) + '" placeholder="' + ph + '" onchange="QL.setRow(' + i + ', \'value\', this.value)">';
     }
   }
   /* filter-nested-any: optional compound root-level AND (e.g. HomePort == "X" && Any(...)) */
@@ -509,6 +561,63 @@ function rowHTML(row, i) {
 function checkbox(i, prop, on, label) {
   return '<label class="ql-cb"><input type="checkbox"' + (on ? " checked" : "") +
     ' onchange="QL.setRow(' + i + ', \'' + prop + '\', this.checked)">' + esc(label) + "</label>";
+}
+
+/* ---------------- in-app runner: execute the queries against the data ---------------- */
+function runQueries() {
+  const C = core();
+  runResults = null;
+  if (!C || !model) { runResults = { error: "Paste a JSON or CSV sample first, then build a query." }; paintRun(); return; }
+  const ex = C.extractRows(state.json);
+  if (!ex.ok) { runResults = { error: ex.error }; paintRun(); return; }
+  if (!state.rows.length) { runResults = { error: "Add a query first." }; paintRun(); return; }
+  runResults = {
+    count: ex.rows.length,
+    results: state.rows.map(function (r) {
+      const def = SHAPE_BY_KEY[r.shape] || {};
+      return { name: r.name || "q", label: def.label || r.shape, res: C.runQuery(model, r, ex.rows, state.overrides || {}) };
+    }),
+  };
+  paintRun();
+}
+function paintRun() {
+  const el = document.getElementById("ql-run");
+  if (el) el.innerHTML = runHTML();
+}
+function fmtCell(v) {
+  if (v === null || v === undefined) return '<span class="ql-null">·</span>';
+  if (Array.isArray(v)) return "[" + v.length + "]";
+  if (typeof v === "object") { try { return esc(JSON.stringify(v)); } catch (e) { return "{…}"; } }
+  return esc(String(v));
+}
+function runHTML() {
+  if (!runResults) return "";
+  if (runResults.error) return '<div class="ql-run-err">' + esc(runResults.error) + "</div>";
+  const MAX = 50;
+  let h = '<div class="ql-run-head">Results · ' + runResults.count + " row" + (runResults.count === 1 ? "" : "s") + " in the data</div>";
+  runResults.results.forEach(function (q) {
+    h += '<div class="ql-run-q">';
+    h += '<div class="ql-run-q-h"><b>' + esc(q.name) + "</b> <span>" + esc(q.label) + "</span></div>";
+    const r = q.res;
+    if (!r || !r.ok) { h += '<div class="ql-run-err">' + esc((r && r.error) || "could not run") + "</div></div>"; return; }
+    if (r.note) h += '<div class="ql-run-note">' + esc(r.note) + "</div>";
+    const cols = r.columns || [];
+    const data = r.data || [];
+    h += '<div class="ql-run-count">' + data.length + " result" + (data.length === 1 ? "" : "s") + "</div>";
+    if (!data.length) { h += '<div class="ql-run-empty">no rows matched</div></div>'; return; }
+    h += '<div class="ql-table-wrap"><table class="ql-table"><thead><tr>';
+    cols.forEach(function (c) { h += "<th>" + esc(c.label) + "</th>"; });
+    h += "</tr></thead><tbody>";
+    data.slice(0, MAX).forEach(function (row) {
+      h += "<tr>";
+      cols.forEach(function (c) { h += "<td>" + fmtCell(row[c.key]) + "</td>"; });
+      h += "</tr>";
+    });
+    h += "</tbody></table></div>";
+    if (data.length > MAX) h += '<div class="ql-run-more">… ' + (data.length - MAX) + " more</div>";
+    h += "</div>";
+  });
+  return h;
 }
 
 /* ---------------- right: output file options ---------------- */
@@ -834,6 +943,7 @@ const QL = {
   copyCode: copyCode,
   exportProject: exportProject,
   downloadSubmission: downloadSubmission,
+  runQueries: runQueries,
 };
 
 const QUERYLAB = { render: render, init: init, outputHTML: outputHTML };
