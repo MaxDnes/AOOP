@@ -293,6 +293,23 @@
 }
 .ql-cb input { accent-color: var(--green); cursor: pointer; margin: 0; }
 
+/* sort-by null-coalesce box (`?? n`) — narrow numeric-style input */
+.ql-nullval { width: 58px; }
+
+/* compound AND clause on a nested-Any row: an inline "AND <field> == <value>"
+   group, visually grouped so it reads as one optional add-on predicate. */
+.ql-andwhere {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+.ql-andwhere-lab, .ql-andwhere-eq {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  color: var(--text-faint); letter-spacing: 0.3px;
+}
+.ql-andwhere-val { flex: 0 1 100px; min-width: 70px; }
+
 /* multi-field select chips (select-fields shape) */
 .ql-multi { display: inline-flex; flex-wrap: wrap; gap: 5px; }
 .ql-chip-cb {

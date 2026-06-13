@@ -193,7 +193,7 @@ function render() {
     steps: [
       "Configure the worker in the Async Composer: pattern, mechanism, interval, step, commands. The default is the verified ReExam counter.",
       "Verify with Export project (.zip): unzip, dotnet build, dotnet run.",
-      "Optional self-check: paste the ViewModel into Test Lab to generate timing-tolerant tests and run dotnet test. Those tests are NOT handed in.",
+      "Optional self-check: paste the ViewModel into Test Lab to generate timing-tolerant tests and run dotnet test. The headless test now finds and clicks the real control (FindControl<Button>, then the bound TextBlock) the way the grader rewards, not a bare command call. Those tests are NOT handed in.",
       "Click Download submission files.",
     ],
     deliver: "That downloads the Problem 3 pair. The filename to use is the manifest one " +
@@ -205,7 +205,7 @@ function render() {
     steps: [
       "Paste the exam JSON FIRST and let Query Lab infer the model; missing and null fields become nullable, which is the planted trap.",
       "If the data file is CSV instead of JSON, paste it anyway: Query Lab switches to CSV mode and generates exam-legal System-only parsing, no CSVHelper.",
-      "Add the query rows in the order the paper asks, and reorder them if needed.",
+      "Add the query rows in the order the paper asks, and reorder them if needed. Scalar filters are null- and type-aware now: an is-empty/missing row emits == null, an int nested-Any emits a bare == 2245, a row can carry a compound AND, and above-average can exclude nulls so missing values do not skew the average.",
       "Verify with Export project (.zip): unzip, cd into the unzipped folder, then dotnet run so the data file resolves.",
       "Click Download submission files.",
     ],

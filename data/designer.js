@@ -888,6 +888,7 @@
   /* ---------------- inspector ---------------- */
   function suggestBind(name, node) {
     const m = { Command: "SaveCommand", ItemsSource: "Items", SelectedItem: "SelectedItem",
+                SelectedItems: "SelectedItems",
                 Text: "Name", Content: "Label", Value: "Value", IsChecked: "IsOn", Fill: "FillColor" };
     if (name === "Command" && node && node.props && node.props.Content) {
       const word = String(node.props.Content).replace(/[^A-Za-z0-9]/g, "");
@@ -1001,13 +1002,33 @@
     h += '<div class="dsg-row"><label>Class</label>'
       + '<input class="dsg-in" value="' + escH(m.className || "Item") + '"'
       + ' oninput="DSG.setModelClass(this.value)" placeholder="Item"></div>';
+    /* G6: nested-in-VM model -> vm:Outer+Inner compiled-binding DataType */
+    const nested = !!m.nested;
+    h += '<div class="dsg-row dsg-row-check"><label>Nested in VM</label>'
+      + '<input class="dsg-check" type="checkbox"' + (nested ? " checked" : "")
+      + ' onchange="DSG.setNested(this.checked)" title="class declared inside the ViewModel '
+      + '(emits the vm:Outer+Inner DataType)"></div>';
+    if (nested) {
+      h += '<div class="dsg-insp-note">DataType qualified as <code>vm:'
+        + escH(m.outerClass || "MainWindowViewModel") + "+" + escH(m.className || "Item")
+        + "</code>. Declare the class inside the ViewModel.</div>";
+    }
+    /* G2: render each item as one shape instead of the debug field list */
+    const shape = m.templateShape || "";
+    h += '<div class="dsg-row"><label>Item shape</label>'
+      + '<select class="dsg-in" onchange="DSG.setTemplateShape(this.value)">'
+      + '<option value=""' + (shape ? "" : " selected") + ">list (debug)</option>"
+      + '<option value="Ellipse"' + (shape === "Ellipse" ? " selected" : "") + ">Ellipse</option>"
+      + '<option value="Rectangle"' + (shape === "Rectangle" ? " selected" : "") + ">Rectangle</option>"
+      + "</select></div>";
     if (node.type === "ItemsControl") {
       const on = !!m.canvasItems;
       h += '<div class="dsg-row dsg-row-check"><label>Canvas items panel</label>'
         + '<input class="dsg-check" type="checkbox"' + (on ? " checked" : "")
         + ' onchange="DSG.setCanvasItems(this.checked)" title="free position (Summer 2025 idiom)"></div>'
         + '<div class="dsg-insp-note">Emits an ItemsPanelTemplate Canvas + a '
-        + "ContentPresenter style binding Canvas.Left/Top to X/Y.</div>";
+        + "ContentPresenter style binding Canvas.Left/Top to X/Y. Set the ItemsControl "
+        + "Width/Height to size that inner Canvas and the spawn clamps.</div>";
     }
     h += '<div class="dsg-insp-sub">Fields</div>';
     const fields = m.fields || [];
@@ -1044,6 +1065,17 @@
     }
     h += "</div>";
     (def.props || []).forEach(function (p) { h += propRow(node, p, def.defaultProps || {}); });
+    /* G8: root namespace stamped into xmlns:vm / x:Class / `namespace ...`. Blank =
+       ExamApp (default; keeps the .zip export's namespace-rewrite path working). */
+    if (isRoot) {
+      h += '<div class="dsg-insp-sec">Project</div>';
+      h += '<div class="dsg-row"><label>Namespace</label>'
+        + '<input class="dsg-in" value="' + escH(tree.projectNamespace || "")
+        + '" placeholder="ExamApp" title="root namespace for xmlns:vm / x:Class"'
+        + ' oninput="DSG.setProjectNamespace(this.value)"></div>'
+        + '<div class="dsg-insp-note">Default ExamApp. Set this to match the target '
+        + "project so the pasted code lands in the right namespace.</div>";
+    }
     if (def.itemsHost) h += itemsModeHTML(node);
     if (!isRoot) {
       const parent = CORE.findParent(tree, node.id);
@@ -1603,6 +1635,16 @@
       refreshLight();
     },
 
+    /* G8: the root namespace stamped into xmlns:vm / x:Class / `namespace ...`. Empty
+       falls back to ExamApp (keeps the projzip namespace-rewrite path intact). */
+    setProjectNamespace: function (value) {
+      pushUndoCoalesced("root|projns");
+      const s = String(value == null ? "" : value).trim();
+      if (s && s !== "ExamApp") tree.projectNamespace = s;
+      else delete tree.projectNamespace;
+      refreshLight();
+    },
+
     setColor: function (name, value) {
       const node = CORE.findNode(tree, selectedId);
       if (!node) return;
@@ -1751,6 +1793,23 @@
       if (!node || !node.model) return;
       pushUndo(); endCoalesce();
       node.model.canvasItems = !!on;
+      refresh();
+    },
+    /* G2: item-template shape (none / Ellipse / Rectangle) */
+    setTemplateShape: function (value) {
+      const node = CORE.findNode(tree, selectedId);
+      if (!node || !node.model) return;
+      pushUndo(); endCoalesce();
+      if (value === "Ellipse" || value === "Rectangle") node.model.templateShape = value;
+      else delete node.model.templateShape;
+      refresh();
+    },
+    /* G6: model class nested inside the ViewModel -> vm:Outer+Inner DataType */
+    setNested: function (on) {
+      const node = CORE.findNode(tree, selectedId);
+      if (!node || !node.model) return;
+      pushUndo(); endCoalesce();
+      if (on) node.model.nested = true; else delete node.model.nested;
       refresh();
     },
     addField: function () {

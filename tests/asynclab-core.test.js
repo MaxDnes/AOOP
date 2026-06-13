@@ -289,6 +289,52 @@ test("AXAML snippet: progress -> ProgressBar, list -> ListBox", () => {
   includes(C.generateAxaml({ pattern: "list" }).code, '<ListBox ItemsSource="{Binding Items}"');
 });
 
+/* ============ G11: pauseLabel sets the stop button Content, command unchanged ============ */
+test("pauseLabel: default is 'Stop' and the snippet output is byte-for-byte unchanged", () => {
+  /* the default config must reproduce the historic Stop button line exactly,
+     including the two-space alignment before Command= */
+  eq(C.normalize({}).pauseLabel, "Stop", "default pauseLabel is Stop");
+  const x = C.generateAxaml({}).code;
+  includes(x, '        <Button Content="Stop"  Command="{Binding StopCommand}"/>');
+  /* and the same default holds for the submission AXAML pair */
+  const sub = C.generateSubmission({})[1].code;
+  includes(sub, '<Button Content="Stop"  Command="{Binding StopCommand}"/>');
+});
+
+test("pauseLabel: 'Pause' sets Content=\"Pause\" on the stop button, binding unchanged", () => {
+  const x = C.generateAxaml({ pauseLabel: "Pause" }).code;
+  /* the Content changes... */
+  includes(x, 'Content="Pause"');
+  notIncludes(x, 'Content="Stop"', "the old Stop label must be gone when overridden");
+  /* ...but the command binding stays StopCommand (command name unchanged) */
+  includes(x, 'Content="Pause" Command="{Binding StopCommand}"/>');
+  /* the Start and Reset buttons are untouched */
+  includes(x, 'Content="Start" Command="{Binding StartCommand}"/>');
+  includes(x, 'Content="Reset" Command="{Binding ResetCommand}"/>');
+  xmlBalanced(x);
+
+  /* the submission AXAML honours pauseLabel the same way */
+  const sub = C.generateSubmission({ pauseLabel: "Pause" })[1].code;
+  includes(sub, 'Content="Pause" Command="{Binding StopCommand}"/>');
+  notIncludes(sub, 'Content="Stop"', "submission stop button respects pauseLabel");
+  xmlBalanced(sub);
+});
+
+test("pauseLabel: blank/garbage falls back to Stop; XML-special chars are escaped", () => {
+  /* empty / whitespace-only -> default Stop */
+  eq(C.normalize({ pauseLabel: "   " }).pauseLabel, "Stop");
+  eq(C.normalize({ pauseLabel: "" }).pauseLabel, "Stop");
+  eq(C.normalize({ pauseLabel: null }).pauseLabel, "Stop");
+  /* a label with XML-special chars is escaped so the attribute stays valid */
+  const x = C.generateAxaml({ pauseLabel: 'P&use "<x>"' }).code;
+  notIncludes(x, '<Button Content="P&use', "raw & must be escaped");
+  includes(x, "&amp;");
+  includes(x, "&lt;");
+  includes(x, "&gt;");
+  includes(x, "&quot;");
+  xmlBalanced(x);
+});
+
 /* ============ headless test file ============ */
 test("headless test: [AvaloniaFact], TestApplication, timing-tolerant InRange, reset assert", () => {
   const file = C.generateTest({});

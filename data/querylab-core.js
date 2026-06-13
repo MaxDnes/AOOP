@@ -665,10 +665,44 @@
     return null;   /* string / DateTime / anything else: caller uses csString */
   }
 
+  /* Does this row ask for a null/empty (missing) comparison rather than a value
+     comparison? True when the row's match mode is "null"/"empty", or when the
+     row carries the JS null literal as its value. Used by filter-equals so the
+     "is empty/missing" query emits `field == null` (the CSV-empty-is-null trap)
+     instead of `== ""` or `== "null"`. */
+  function isNullMatch(row) {
+    var m = row && row.match;
+    if (m === "null" || m === "empty") return true;
+    return row && Object.prototype.hasOwnProperty.call(row, "value") && row.value === null;
+  }
+
+  /* Render a nested sub-field comparison value as a C# literal of the sub-field's
+     inferred type, so an int/long/double/bool sub-field gets a bare token (== 2245)
+     and a string stays quoted (== "x"). `nf` is the nested field descriptor and
+     `ov` its per-field override (e.g. DateTime). Returns the literal string. */
+  function nestedEqualsLiteral(nf, ov, value) {
+    var base = nf ? effectiveBaseType(nf, ov) : "string";
+    if (base === "int" || base === "long" || base === "double" || base === "bool") {
+      var lit = equalsLiteral(base === "long" ? "int" : base, value);
+      if (lit !== null) return lit;
+    }
+    return csString(value);
+  }
+
   function genFilterEquals(model, row, overrides) {
     var f = findRootField(model, row.field);
     var ref = fieldRef(model, row.field, overrides);
     var base = rootEffectiveBase(model, f, overrides);
+    /* null/empty match mode: emit a bare `field == null` (no quotes), the only
+       correct test for a missing scalar. A CSV empty cell deserializes to null
+       (the parser does `v.Length == 0 ? null : v`), so the "is empty/missing"
+       query MUST be `== null`, never `== ""`. Triggered by an explicit match
+       mode ("null"/"empty") or a row whose value is the JS null literal. Pure
+       addition: no existing filter-equals row sets these, so the happy path is
+       byte-unchanged. */
+    if (isNullMatch(row)) {
+      return { expr: "source\n    .Where(s => " + ref + " == null)\n    .ToList()" };
+    }
     var typedLit = (base === "string" || base === "DateTime") ? null : equalsLiteral(base, row.value);
     var cmp;
     if (typedLit !== null) {
@@ -723,7 +757,10 @@
     var subProp = nf ? nf.property : pascal(row.subField || "Field");
     var predicate;
     var mode = row.match || "equals";
-    var ov = nf ? overrides[model.byName[findRootField(model, row.collection).nestedClass].name + "." + nf.key] : null;
+    var rootF = findRootField(model, row.collection);
+    var ov = (nf && rootF && rootF.nestedClass && model.byName[rootF.nestedClass])
+      ? overrides[model.byName[rootF.nestedClass].name + "." + nf.key]
+      : null;
     if (mode === "null") {
       predicate = "t." + subProp + " == null";
     } else if (mode === "year") {
@@ -736,9 +773,53 @@
         predicate = "t." + subProp + "?.Year == " + (parseInt(row.value, 10) || 0);
       }
     } else {
-      predicate = "t." + subProp + " == " + csString(row.value);
+      /* type-aware equals: an int/double/bool sub-field gets a bare literal
+         (t.Year == 2245), a string stays quoted (t.Name == "x"). Wrapping every
+         value through csString() produced `t.Year == "2245"`, which is CS0019 on
+         an int? sub-field and would not compile. */
+      predicate = "t." + subProp + " == " + nestedEqualsLiteral(nf, ov, row.value);
     }
-    return { expr: "source\n    .Where(s => " + enumExpr + ".Any(t => " + predicate + "))\n    .ToList()" };
+    /* optional compound AND: a root-level predicate combined with the nested
+       Any in one query, e.g. `s.HomePort == "Gullhaven" && (s.X ?? new()).Any(...)`.
+       Pure addition: omitting andWhere leaves the single-predicate output
+       byte-unchanged. */
+    var anyExpr = enumExpr + ".Any(t => " + predicate + ")";
+    var whereBody = anyExpr;
+    var rootPred = rootPredicate(model, row.andWhere, overrides);
+    if (rootPred) whereBody = rootPred + " && " + anyExpr;
+    return { expr: "source\n    .Where(s => " + whereBody + ")\n    .ToList()" };
+  }
+
+  /* Build a root-level predicate string for a compound AND clause from an
+     `andWhere` spec { field, value, op? }. op defaults to "equals"; "null" emits
+     `s.Field == null`, "notEquals" emits `!=`. Typed like filter-equals so a
+     numeric/bool root field gets a bare literal and a string stays quoted.
+     Returns null when there is no usable andWhere (caller emits the plain Any). */
+  function rootPredicate(model, spec, overrides) {
+    if (!spec || typeof spec !== "object" || !spec.field) return null;
+    var f = findRootField(model, spec.field);
+    var ref = fieldRef(model, spec.field, overrides);
+    var op = spec.op || "equals";
+    if (op === "null") return ref + " == null";
+    if (op === "notNull") return ref + " != null";
+    var base = rootEffectiveBase(model, f, overrides);
+    var typedLit = (base === "string" || base === "DateTime") ? null : equalsLiteral(base, spec.value);
+    var lit = typedLit !== null ? typedLit : csString(spec.value);
+    var cmp = (op === "notEquals" || op === "!=") ? " != " : " == ";
+    return ref + cmp + lit;
+  }
+
+  /* Optional `?? n` coalesce on a nullable sort key so a missing scalar sorts as
+     n instead of bubbling to one end unpredictably, e.g.
+     `OrderByDescending(s => s.Signups ?? 0)`. Emits nothing when nullValue is
+     unset (the bare key, byte-unchanged). A blank-but-present nullValue (e.g. "0")
+     is honoured; a non-numeric nullValue is quoted so a string key still compiles. */
+  function sortCoalesce(row) {
+    if (!row || row.nullValue === undefined || row.nullValue === null || row.nullValue === "") return "";
+    var v = esc(row.nullValue).trim();
+    if (v === "") return "";
+    var lit = /^-?(\d+(\.\d+)?|\.\d+)$/.test(v) ? v : csString(v);
+    return " ?? " + lit;
   }
 
   function genSortBy(model, row, overrides) {
@@ -750,7 +831,7 @@
         ? "s." + f.property + "?.Count ?? 0"
         : "s." + f.property + ".Count");
     } else {
-      keySel = "s => " + fieldRef(model, row.field, overrides);
+      keySel = "s => " + fieldRef(model, row.field, overrides) + sortCoalesce(row);
     }
     var chain = "source\n    ." + dir + "(" + keySel + ")";
     if (row.thenBy) {
@@ -793,21 +874,44 @@
 
   function genAboveAverage(model, row, overrides) {
     var f = findRootField(model, row.field);
+    var prop = f ? f.property : pascal(row.field);
+    var avgVar = (row.name || "q") + "Average";
+    var isCount = row.byCount && f && f.isCollection;
+    var scalarNullable = !isCount && f && f.nullable;
+
+    /* excludeNull (scalar nullable only): average the KNOWN values, not the full
+       source coalesced to 0. Counting missing values as 0 skews the average and
+       wrongly admits/excludes rows; the exam asks "above the average of the
+       present values, and a missing value can never be above average". Builds a
+       knownX list, averages its non-null .Value, and guards the outer Where with
+       `!= null`. Off by default (byte-unchanged ?? 0 behaviour). */
+    if (row.excludeNull && scalarNullable) {
+      var knownVar = "known" + capitalize(prop);
+      var pre = "var " + knownVar + " = source.Where(r => r." + prop + " != null).ToList();\n" +
+        "double " + avgVar + " = " + knownVar + ".Any() ? " + knownVar + ".Average(r => r." + prop + "!.Value) : 0;";
+      var expr = "source\n    .Where(s => s." + prop + " != null && s." + prop + ".Value > " + avgVar + ")\n    .ToList()";
+      return { expr: expr, pre: pre };
+    }
+
     var perElem, avgSel;
-    if (row.byCount && f && f.isCollection) {
+    if (isCount) {
       perElem = collectionIsNullable(f, overrides) ? "s." + f.property + "?.Count ?? 0" : "s." + f.property + ".Count";
       avgSel = "r => " + (collectionIsNullable(f, overrides) ? "r." + f.property + "?.Count ?? 0" : "r." + f.property + ".Count");
     } else {
-      perElem = "s." + (f ? f.property : pascal(row.field)) + (f && f.nullable ? " ?? 0" : "");
-      avgSel = "r => r." + (f ? f.property : pascal(row.field)) + (f && f.nullable ? " ?? 0" : "");
+      perElem = "s." + prop + (scalarNullable ? " ?? 0" : "");
+      avgSel = "r => r." + prop + (scalarNullable ? " ?? 0" : "");
     }
     /* compute the list-wide average ONCE (a > comparison, strictly greater),
        matching the recipes solution. The average pre-statement is emitted by
        buildQueryLine via the .pre field. */
-    var avgVar = (row.name || "q") + "Average";
-    var pre = "double " + avgVar + " = source.Any() ? source.Average(" + avgSel + ") : 0;";
-    var expr = "source\n    .Where(s => (" + perElem + ") > " + avgVar + ")\n    .ToList()";
-    return { expr: expr, pre: pre };
+    var preDefault = "double " + avgVar + " = source.Any() ? source.Average(" + avgSel + ") : 0;";
+    var exprDefault = "source\n    .Where(s => (" + perElem + ") > " + avgVar + ")\n    .ToList()";
+    return { expr: exprDefault, pre: preDefault };
+  }
+
+  function capitalize(s) {
+    s = String(s == null ? "" : s);
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
   }
 
   function genTopN(model, row, overrides) {
@@ -1030,7 +1134,9 @@
     /* each query in order */
     queries.forEach(function (q, qi) {
       L.push("        // Query " + (qi + 1) + ": " + q.label);
-      if (q.pre) L.push("        " + q.pre);
+      /* pre may be multi-line (e.g. the excludeNull above-average pre-filter +
+         average): indent() handles one or many lines identically. */
+      if (q.pre) L.push(indent(q.pre, "        "));
       L.push(indent(q.decl, "        "));
       L.push("");
     });

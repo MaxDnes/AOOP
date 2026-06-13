@@ -340,10 +340,105 @@ test("headless: TestAppBuilder + AvaloniaFact present, structure matches starter
   includes(ui, "[AvaloniaFact]");
   includes(ui, "window.Show();");
   includes(ui, "for (var i = 0; i < 100; i++)");
-  includes(ui, "vm.StartCommand.Execute(null);");
   braceBalanced(builder);
   braceBalanced(ui);
   parenBalanced(ui);
+});
+
+/* ---- G1: headless test must find + click the real control, not call the VM ----
+   The rubric rewards locating and clicking the Button and asserting the bound
+   TextBlock, not bypassing the UI with vm.SomeCommand.Execute(null). */
+test("G1 headless: finds Button + TextBlock, asserts non-null, clicks via Command, asserts text", () => {
+  const ui = C.genHeadless({ viewModel: "CounterViewModel", command: "StartCommand" })
+    .find((f) => f.fileName === "HeadlessUiTests.cs").code;
+  /* the real controls are located and asserted non-null */
+  includes(ui, 'window.FindControl<Button>(');
+  includes(ui, 'window.FindControl<TextBlock>(');
+  includes(ui, "Assert.NotNull(button);");
+  includes(ui, "Assert.NotNull(text);");
+  /* the button is clicked through its bound Command (a click, fire-and-stop) */
+  includes(ui, "button!.Command?.Execute(button.CommandParameter);");
+  /* the bound TextBlock text is what gets asserted */
+  includes(ui, "text!.Text");
+  /* the old VM-bypass pattern is GONE: never call vm.<cmd>.Execute(null) here */
+  notIncludes(ui, "vm.StartCommand.Execute(null)",
+    "headless must click the control, not call the VM command directly");
+  /* never AWAIT a command in the headless click loop (would block the host) */
+  notIncludes(ui, "ExecuteAsync", "no awaited command in the headless click loop");
+  /* Xunit is imported so Assert resolves */
+  includes(ui, "using Xunit;");
+  braceBalanced(ui);
+  parenBalanced(ui);
+});
+
+test("G1 headless: parsed control names are stamped through; absent names get a marked placeholder", () => {
+  /* names known (from a parsed view): used verbatim, no placeholder TODO */
+  const named = C.genHeadless({ viewModel: "CounterViewModel", buttonName: "IncrementButton", textName: "CountText" })
+    .find((f) => f.fileName === "HeadlessUiTests.cs").code;
+  includes(named, 'window.FindControl<Button>("IncrementButton")');
+  includes(named, 'window.FindControl<TextBlock>("CountText")');
+  includes(named, "Control names taken from the parsed view");
+  notIncludes(named, "TODO: rename", "no rename TODO when names are known");
+  /* names unknown: a clearly-marked placeholder the student edits */
+  const placeholder = C.genHeadless({ viewModel: "CounterViewModel" })
+    .find((f) => f.fileName === "HeadlessUiTests.cs").code;
+  includes(placeholder, "TODO: rename");
+  includes(placeholder, 'window.FindControl<Button>("ClickButton")');
+  braceBalanced(named);
+  braceBalanced(placeholder);
+});
+
+/* ---- G9: target namespace, view-class default, ProjectReference path ---- */
+test("G9 headless: targetNamespace + viewClass options stamp through; default view class is MainWindow", () => {
+  const def = C.genHeadless({ viewModel: "BoardViewModel" })
+    .find((f) => f.fileName === "HeadlessUiTests.cs").code;
+  /* default view class is MainWindow, NOT derived by stripping "ViewModel" */
+  includes(def, "new MainWindow { DataContext = vm };");
+  notIncludes(def, "new Board {", "view class must default to MainWindow, not <stripped VM>");
+  /* options thread a real target namespace + view class through */
+  const files = C.genHeadless({
+    viewModel: "BoardViewModel", viewClass: "GameWindow", targetNamespace: "SpaceGame",
+  });
+  const ui = files.find((f) => f.fileName === "HeadlessUiTests.cs").code;
+  const builder = files.find((f) => f.fileName === "TestAppBuilder.cs").code;
+  includes(ui, "namespace SpaceGame.Tests;");
+  includes(ui, "using SpaceGame.ViewModels;");
+  includes(ui, "using SpaceGame.Views;");
+  includes(ui, "new GameWindow { DataContext = vm };");
+  includes(builder, "using SpaceGame;");
+  braceBalanced(ui);
+  braceBalanced(builder);
+});
+
+test("G9 headless: default output is byte-for-byte unchanged except the view-class default", () => {
+  /* with no options the namespace defaults to ExamApp(.Tests) exactly as before */
+  const ui = C.genHeadless({ viewModel: "MainWindowViewModel" })
+    .find((f) => f.fileName === "HeadlessUiTests.cs").code;
+  includes(ui, "namespace ExamApp.Tests;");
+  includes(ui, "using ExamApp.ViewModels;");
+  includes(ui, "using ExamApp.Views;");
+  includes(ui, "new MainWindow { DataContext = vm };");
+});
+
+test("G9 csproj: ProjectReference path is an option, default unchanged", () => {
+  /* default path byte-for-byte unchanged */
+  includes(C.genCsproj().code, '<ProjectReference Include="..\\ExamApp\\ExamApp.csproj" />');
+  /* a custom path stamps through so the test project references the real project */
+  const custom = C.genCsproj({ projectReference: "..\\SpaceGame\\SpaceGame.csproj" }).code;
+  includes(custom, '<ProjectReference Include="..\\SpaceGame\\SpaceGame.csproj" />');
+  notIncludes(custom, "ExamApp.csproj", "the default ref must be replaced, not duplicated");
+});
+
+test("G9 generate(): headless file uses MainWindow (not the VM stripped of ViewModel)", () => {
+  const m = parse(COUNTER_VM, "CounterViewModel.cs");
+  const files = C.generate(m, { headless: true });
+  const ui = files.find((f) => f.fileName === "HeadlessUiTests.cs").code;
+  /* the historic bug emitted `new Counter { ... }` (no such window type) */
+  notIncludes(ui, "new Counter {", "must not derive the window name by stripping ViewModel");
+  includes(ui, "new MainWindow { DataContext = vm };");
+  /* the VM is still the parsed one */
+  includes(ui, "new CounterViewModel();");
+  braceBalanced(ui);
 });
 
 /* ============ generator: csproj ============ */

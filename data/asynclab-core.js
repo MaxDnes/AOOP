@@ -30,6 +30,7 @@
       intervalMs: 100,
       step: 1,
       commands: { start: true, stop: true, reset: true, toggle: false },
+      pauseLabel: "Stop",      /* Content of the pause/stop button; command name unchanged */
       canExecute: false,       /* [RelayCommand(CanExecute=...)] + [NotifyCanExecuteChangedFor] */
       resetStops: true,        /* Reset stops the worker too (default keeps ReExam behaviour: stop+zero) */
       emitAxaml: false,
@@ -76,6 +77,7 @@
       intervalMs: interval,
       step: step,
       commands: commands,
+      pauseLabel: sanitizeLabel(cfg.pauseLabel) || d.pauseLabel,
       canExecute: cfg.canExecute === true,
       resetStops: cfg.resetStops !== false,    /* default true */
       emitAxaml: cfg.emitAxaml === true,
@@ -92,6 +94,28 @@
   function sanitizeIdent(s) {
     s = String(s == null ? "" : s).trim();
     return /^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ? s : "";
+  }
+  /* drop ASCII control characters (0x00-0x1F and 0x7F) without putting any
+     control bytes in this source file. */
+  function stripControls(s) {
+    var out = "";
+    for (var i = 0; i < s.length; i++) {
+      var code = s.charCodeAt(i);
+      if (code >= 32 && code !== 127) out += s.charAt(i);
+    }
+    return out;
+  }
+  /* the pause/stop button Content is free text the student picks (e.g. "Pause").
+     Trim it, drop ASCII control chars, and XML-escape it so it drops safely into
+     an AXAML Content="..." attribute. Empty input falls back to the default. */
+  function sanitizeLabel(s) {
+    s = stripControls(String(s == null ? "" : s)).trim();
+    if (!s) return "";
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   /* ===================== per-pattern descriptors ===================== */
@@ -511,6 +535,25 @@
     return out;
   }
 
+  /* the pause/stop button line. Its Content is cfg.pauseLabel (default "Stop"),
+     but the bound command stays StopCommand. The trailing pad aligns the Command=
+     keyword with the Start button above it; with the default "Stop" label this
+     reproduces the historic two-space form byte-for-byte. Longer labels keep a
+     single separating space. */
+  function stopButton(cfg) {
+    var label = cfg.pauseLabel || "Stop";
+    /* align to the "Start" button: Content="Start" is 5 chars + one space. */
+    var pad = (5 - label.length) + 1;
+    if (pad < 1) pad = 1;
+    return '<Button Content="' + label + '"' + repeat(" ", pad) + 'Command="{Binding StopCommand}"/>';
+  }
+
+  function repeat(s, n) {
+    var out = "";
+    for (var i = 0; i < n; i++) out += s;
+    return out;
+  }
+
   /* ===================== AXAML snippet ===================== */
 
   function generateAxaml(cfg) {
@@ -542,7 +585,7 @@
       X.push('        <Button Content="Start / Stop" Command="{Binding ToggleCommand}"/>');
     } else {
       if (c.start) X.push('        <Button Content="Start" Command="{Binding StartCommand}"/>');
-      if (c.stop)  X.push('        <Button Content="Stop"  Command="{Binding StopCommand}"/>');
+      if (c.stop)  X.push('        ' + stopButton(cfg));
     }
     if (c.reset) X.push('        <Button Content="Reset" Command="{Binding ResetCommand}"/>');
     X.push('    </StackPanel>');
@@ -625,7 +668,7 @@
       body.push('        <Button Content="Start / Stop" Command="{Binding ToggleCommand}"/>');
     } else {
       if (c.start) body.push('        <Button Content="Start" Command="{Binding StartCommand}"/>');
-      if (c.stop)  body.push('        <Button Content="Stop"  Command="{Binding StopCommand}"/>');
+      if (c.stop)  body.push('        ' + stopButton(cfg));
     }
     if (c.reset) body.push('        <Button Content="Reset" Command="{Binding ResetCommand}"/>');
     body.push('    </StackPanel>');

@@ -291,6 +291,14 @@
            there) and whether it is dereferenced unguarded (a latent NRE). ---- */
     {
       id: "downcast", principle: "DIP", severity: "high",
+      /* spec 19 G3: a downcast is cross-cutting. DIP is primary (it re-couples
+         the high-level policy to a concretion), but it also breaks LSP (only
+         one concrete type works, every other implementation is punished) and
+         OCP (a new implementation cannot be plugged in without editing this
+         method). The full-mode draft uses this array to seed a derived,
+         principle-framed entry in each listed section so no mandatory RUBRIC
+         principle section comes out empty. DIP must stay first. */
+      principles: ["DIP", "LSP", "OCP"],
       title: "Downcast of an injected abstraction to a concrete class",
       theory: "Casting a value held as an abstraction back to one specific implementation (with 'as' or a C-style cast) primarily violates the Dependency Inversion Principle: the high-level module had its concrete dependency removed by accepting the interface, and the cast hard-wires it straight back to one low-level class, so the policy again depends on a concretion the composition root was supposed to choose. It is also a Liskov Substitution problem as a secondary effect — because the code then only works for that one concrete type, every other valid implementation of the interface is punished (it takes the error path or fails) — so the abstraction is no longer freely substitutable. The usual root cause is a member that exists only on the concrete class and is missing from the interface.",
       fix: "Move the needed member onto the interface (or introduce a new, focused interface that the concrete class also implements) and call it through the abstraction, so the class depends only on the abstraction again.",
@@ -1112,6 +1120,64 @@
 
   const SRP_ROLE_RE = /(Repository|Generator|Notifier|Logger|Rule|Service|Validator|Processor|Manager|Handler|Factory|Builder|Formatter|Parser|Calculator|Provider|Strategy|Finder)$/;
 
+  /* ---- spec 19 G12: structural signals that tell a real (injected/invoked)
+     strategy interface from a capability/role marker. Given one interface name,
+     scan every class for:
+       injected   - the interface name appears in some constructor's parameter
+                    list (bare 'IFoo foo' or wrapped 'List<IFoo>'), and that
+                    class stores it (a field/param of that type). injectedInto
+                    names the first such class.
+       invoked    - a stored field typed (or wrapping) the interface is called
+                    through, i.e. '_field.Member(' appears in the class body.
+       capabilityMarker - 3+ implementors, the interface's members are all pure
+                    capability (zero members, or only property getters / boolean
+                    CanX-style queries with no behaviour verb), AND it is neither
+                    injected nor invoked anywhere. This is the IAquatic shape.
+     A field is "of the interface type" when its declared type contains the
+     interface name as a whole word (covers IFoo, List<IFoo>, IReadOnlyList<IFoo>). */
+  function strategySignals(iface, ctxs, index, impls) {
+    const wholeWord = new RegExp("\\b" + iface + "\\b");
+    let injected = false, invoked = false, injectedInto = null;
+    ctxs.forEach((ctx) => {
+      ctx.classes.forEach((cls) => {
+        if (cls.kind !== "class" && cls.kind !== "record") return;
+        const ctor = cls.members && cls.members.find((mb) => mb.isCtor);
+        const body = ctx.stripped.slice(cls.open, cls.close + 1);
+        /* injection: ctor parameter whose type mentions the interface */
+        if (ctor && wholeWord.test(ctor.params)) {
+          if (!injected) { injected = true; injectedInto = cls.name; }
+          /* find fields whose declared type mentions the interface, then look
+             for an invocation through one of them ('_field.Member(') */
+          const fieldRe = /(?:private|protected|internal|public|readonly|static|\s)+([\w<>,?.\[\] ]*?)\s+(_?[A-Za-z_]\w*)\s*;/g;
+          let fm;
+          while ((fm = fieldRe.exec(body))) {
+            if (!wholeWord.test(fm[1])) continue;
+            const field = fm[2];
+            const callRe = new RegExp("\\b" + field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\.\\s*[A-Za-z_]\\w*\\s*\\(");
+            if (callRe.test(body)) { invoked = true; injected = true; if (!injectedInto) injectedInto = cls.name; }
+          }
+        }
+      });
+    });
+    /* capability/role marker shape: pure-capability members, many implementors,
+       no injection/invocation seam */
+    let capabilityMarker = false;
+    const members = (index.interfaces[iface] && index.interfaces[iface].members) || [];
+    const pureCapability = members.every((m) => {
+      const s = String(m).trim();
+      if (!s) return true;
+      /* a property getter ('Type Name { get; }') or a boolean Can/Is/Has/Should
+         query is a capability signal; a verb-named method ('Tank Assign(...)')
+         is behaviour, so it is NOT pure capability */
+      if (/\{\s*get\b/.test(s)) return true;
+      if (/\b(bool)\s+(Can|Is|Has|Should)[A-Z]/.test(s)) return true;
+      if (/[A-Za-z_]\w*\s*\([^)]*\)/.test(s)) return false; /* a method = behaviour */
+      return true;
+    });
+    if ((impls.length >= 3) && pureCapability && !injected && !invoked) capabilityMarker = true;
+    return { injected, invoked, injectedInto, capabilityMarker };
+  }
+
   function detectPresence(ctxs, index) {
     const out = [];
     let pi = 0;
@@ -1213,23 +1279,81 @@
       });
     }
 
-    /* ---- OCP / Strategy present: interface with 2+ implementations ---- */
-    const strategyIface = Object.keys(implsByIface).filter((i) => implsByIface[i].length >= 2)
-      .sort((a, b) => implsByIface[b].length - implsByIface[a].length)[0];
+    /* ---- OCP / Strategy present (spec 19 G12): pick the interface that reads as
+       a real strategy, not a capability/role marker. The old heuristic took any
+       interface with the most implementors, which let a role marker (e.g.
+       IAquatic, 3 unrelated implementors) beat the genuine strategy
+       (ITankAssignmentStrategy, constructor-injected and invoked through a
+       stored field). We now score each 2+-implementor candidate:
+         + it is constructor-injected into some class AND invoked through a
+           stored field  (the textbook strategy seam)             strong
+         + it is constructor-injected (type appears in a ctor param), even if
+           the field is not invoked here (still the seam, e.g. a stored-but-
+           unused List<IDietaryRule>)                              moderate
+         - it looks like a capability/role marker: 3+ structurally-unrelated
+           implementors whose members are pure capability (property getters /
+           CanX-style / none) AND it is neither injected nor invoked anywhere   penalty
+       Ties (equal score) fall back to the original most-implementors order, so
+       single-candidate fixtures (reexam IDietaryRule, summer IProcessable) are
+       byte-unchanged. When the best candidate scores no positive signal (no
+       injection, no invocation), the finding hedges ("candidate strategy")
+       rather than asserting a confidently wrong type. ---- */
+    const stratCandidates = Object.keys(implsByIface).filter((i) => implsByIface[i].length >= 2);
+    let strategyIface = null, strategyInfo = null;
+    if (stratCandidates.length) {
+      const scored = stratCandidates.map((iface) => {
+        const info = strategySignals(iface, ctxs, index, implsByIface[iface]);
+        let score = 0;
+        if (info.injected && info.invoked) score += 6;
+        else if (info.injected) score += 3;
+        else if (info.invoked) score += 2;
+        if (info.capabilityMarker) score -= 5;
+        return { iface, score, info, impls: implsByIface[iface].length };
+      });
+      /* equal score => original most-implementors order, so single-candidate
+         fixtures (reexam IDietaryRule, summer IProcessable) are byte-unchanged */
+      scored.sort((a, b) => (b.score - a.score) || (b.impls - a.impls));
+      const best = scored[0];
+      strategyIface = best.iface;
+      strategyInfo = best.info;
+      /* hedge ONLY when the chosen interface is itself marker-shaped (pure
+         capability, no injection/invocation seam). A non-marker interface with
+         interchangeable behaviour implementations — e.g. IProcessable, whose
+         members are real methods — stays a confident Strategy and reproduces
+         the original wording byte-for-byte. */
+      strategyInfo._confident = !best.info.capabilityMarker;
+    }
     if (strategyIface) {
       const ref = index.interfaces[strategyIface];
       const impls = implsByIface[strategyIface];
-      push({
-        principle: "OCP", title: "Open/Closed via the Strategy pattern", pattern: "Strategy",
-        file: ref.file, line: ref.line, excerpt: excerptAt(ctxByName(ctxs, ref.file), ref.line),
-        message: strategyIface + " has " + impls.length + " implementations (" + impls.join(", ") +
-          ") — new behaviour is added by writing a new class, not by editing existing code.",
-        evidence: strategyIface + " is implemented by " + impls.join(", ") + ", interchangeable strategies behind one abstraction",
-        paragraph: "Open/Closed is present through the Strategy pattern: the interface " + strategyIface +
-          " has " + impls.length + " interchangeable implementations — " + impls.join(", ") + " (" + ref.file + ":" + ref.line +
-          "). Purpose: software should be open for extension but closed for modification, so new variants arrive as new classes plugged into an existing abstraction. Here a new variant of the behaviour is added by writing another " +
-          strategyIface + " implementation, with no edit to the classes that consume them.",
-      });
+      const confident = strategyInfo && strategyInfo._confident;
+      if (confident) {
+        /* original (calibrated) confident wording — unchanged from before G12 */
+        push({
+          principle: "OCP", title: "Open/Closed via the Strategy pattern", pattern: "Strategy",
+          file: ref.file, line: ref.line, excerpt: excerptAt(ctxByName(ctxs, ref.file), ref.line),
+          message: strategyIface + " has " + impls.length + " implementations (" + impls.join(", ") +
+            ") — new behaviour is added by writing a new class, not by editing existing code.",
+          evidence: strategyIface + " is implemented by " + impls.join(", ") + ", interchangeable strategies behind one abstraction",
+          paragraph: "Open/Closed is present through the Strategy pattern: the interface " + strategyIface +
+            " has " + impls.length + " interchangeable implementations — " + impls.join(", ") + " (" + ref.file + ":" + ref.line +
+            "). Purpose: software should be open for extension but closed for modification, so new variants arrive as new classes plugged into an existing abstraction. Here a new variant of the behaviour is added by writing another " +
+            strategyIface + " implementation, with no edit to the classes that consume them.",
+        });
+      } else {
+        /* the only candidate is marker-shaped: hedge rather than assert a
+           confidently-wrong strategy type (spec 19 G12) */
+        push({
+          principle: "OCP", title: "Open/Closed via a candidate Strategy pattern", pattern: "Strategy",
+          file: ref.file, line: ref.line, excerpt: excerptAt(ctxByName(ctxs, ref.file), ref.line),
+          message: strategyIface + " has " + impls.length + " implementations (" + impls.join(", ") +
+            ") — candidate strategy: confirm it is invoked through an injected abstraction, not just a capability/role marker.",
+          evidence: strategyIface + " is implemented by " + impls.join(", ") + ", but reads more like a capability/role marker than an injected, invoked strategy",
+          paragraph: "Open/Closed via a candidate Strategy: the interface " + strategyIface +
+            " has " + impls.length + " implementations — " + impls.join(", ") + " (" + ref.file + ":" + ref.line +
+            ") — but it is not visibly constructor-injected or invoked through a stored field, so it may be a capability/role marker rather than a true strategy. Purpose: software should be open for extension but closed for modification, with new variants plugged into an existing abstraction. Confirm by hand that a consumer holds this interface and calls it polymorphically before presenting it as the Strategy pattern; if instead it only tags types, point at the genuinely injected-and-invoked interface.",
+        });
+      }
     }
 
     /* ---- Repository pattern: *Repository class implementing an interface ---- */
@@ -1432,6 +1556,11 @@
             ruleId: rule.id,
             kind: "violation",
             principle: it.principle || rule.principle,
+            /* spec 19 G3: cross-cutting findings carry every principle they
+               break (primary first). assembleAnswer full mode seeds a derived,
+               principle-framed entry in each listed section so no mandatory
+               RUBRIC principle comes out empty. Absent => single-principle. */
+            principles: (it.principles || rule.principles || null),
             severity: it.severity || rule.severity,
             file: it.file || ctx.name,
             line: it.line || 1,
@@ -1532,6 +1661,35 @@
     POLY: "Purpose: clients call an abstraction and the runtime dispatches to the right implementation, replacing manual type checks with virtual/interface dispatch.",
   };
 
+  /* spec 19 G3: frame a cross-cutting finding for a SECONDARY principle it also
+     breaks. Returns the sentence the derived entry uses under that principle's
+     section, so an LSP/OCP section is never left empty when a downcast (primary
+     DIP) points at it. The wording is principle-specific and deliberately does
+     NOT reuse the rule's own title, so the primary finding still headlines its
+     own (DIP) section while the secondary sections carry a clearly-derived
+     consequence entry. `f` is the finding; `p` the secondary principle. */
+  function crossRefSentence(f, p) {
+    const where = f.file + ":" + (f.line || 1);
+    const concrete = f.message && /to the concrete (\w+)/.exec(f.message);
+    const cname = concrete ? concrete[1] : null;
+    if (f.ruleId === "downcast") {
+      if (p === "LSP") {
+        return "Liskov Substitution is broken as a consequence of the downcast at " + where +
+          ": once the code casts the abstraction to one concrete type" + (cname ? " (" + cname + ")" : "") +
+          ", it works only for that implementation, so substituting any other valid implementation of the interface makes it take the error path or fail. The abstraction is no longer freely substitutable.";
+      }
+      if (p === "OCP") {
+        return "Open/Closed is also affected by the downcast at " + where +
+          ": because the needed member lives only on the concrete type and is reached through the cast, a new implementation of the interface cannot be plugged in without editing this method to add another cast/branch. Lifting the member onto the interface restores extension-by-new-class.";
+      }
+    }
+    /* generic fallback for any other cross-cutting finding */
+    return pName(p) + " is also implicated by the finding at " + where + " (" + (f.message || f.ruleId) +
+      "); see the primary write-up under " + pName(f.principle) + " for the detail and fix.";
+  }
+  /* module-local pName so crossRefSentence can name a principle outside assembleAnswer */
+  function pName(p) { return PRINCIPLES[p] ? PRINCIPLES[p].name : p; }
+
   /* the explicit draft modes the UI offers. "full" is the default and reproduces
      the original presence-then-violations August-rubric draft (spec 08). "june"
      (spec 18) assembles the June P1 paper's 1.1-1.5 structure instead; for the
@@ -1597,6 +1755,14 @@
     }
     out.push("");
 
+    /* spec 19 G3: cross-cutting violations whose `principles` array names `p` as
+       a SECONDARY (non-primary) principle. These seed a derived entry in p's
+       section so a mandatory RUBRIC principle is never left empty when, e.g.,
+       a downcast (primary DIP) also breaks LSP and OCP. Only the secondary
+       principles get a derived entry; the primary keeps its full write-up. */
+    const crossRefsFor = (p) => violations.filter((f) =>
+      Array.isArray(f.principles) && f.principle !== p && f.principles.indexOf(p) !== -1);
+
     const section = (p, heading) => {
       const pres = list.filter((f) => f.principle === p && isPresence(f));
       const viol = list.filter((f) => f.principle === p && !isPresence(f));
@@ -1635,8 +1801,10 @@
         return;
       }
 
-      /* ---- Full mode: presence then violations (original behaviour) ---- */
-      if (!pres.length && !viol.length) return;
+      /* ---- Full mode: presence then violations (original behaviour),
+             then any cross-cutting consequence entry (spec 19 G3) ---- */
+      const xrefs = crossRefsFor(p);
+      if (!pres.length && !viol.length && !xrefs.length) return;
       out.push("=== " + heading + " ===");
       pres.forEach((f) => {
         out.push(f.paragraph || f.message || "");
@@ -1647,6 +1815,22 @@
         out.push("Violation — " + title + " (" + f.file + ":" + f.line + "):");
         out.push(f.paragraph || f.message || "");
         if (f.fix) out.push("Fix: " + f.fix);
+        out.push("");
+      });
+      /* derived cross-cutting consequence entries: a finding whose primary
+         principle is elsewhere but that also breaks p. Framed for p, pointing
+         back at the primary write-up. Deduped per primary file:line. */
+      const seenXref = new Set();
+      xrefs.forEach((f) => {
+        const key = f.ruleId + ":" + f.file + ":" + f.line;
+        if (seenXref.has(key)) return;
+        seenXref.add(key);
+        const primaryName = pName(f.principle);
+        /* heading deliberately does NOT reuse the rule's own title (so the
+           primary principle still owns the headline; this is a derived
+           consequence, framed for p and pointing back at the primary). */
+        out.push("Cross-cutting consequence (primary write-up under " + primaryName + ", " + f.file + ":" + f.line + "):");
+        out.push(crossRefSentence(f, p));
         out.push("");
       });
       /* neither a presence paragraph nor a violation paragraph carried the

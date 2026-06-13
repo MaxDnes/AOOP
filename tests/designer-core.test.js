@@ -980,3 +980,201 @@ test("tree stays consistent (no orphan/duplicate ids) after a 30-op random storm
   const fresh = C.createNode("Button");
   eq(C.findNode(back, fresh.id), null, "no id collision after post-storm deserialize");
 });
+
+/* ==================== spec 19 sim-gap fixes (G2 / G6 / G8) ==================== */
+
+/* helpers: a typed canvas ItemsControl, and a typed ListBox, parameterized so each
+   gap test can flip exactly one option and assert only its delta. */
+function canvasItemsControl(model) {
+  const tree = C.createNode("Window");
+  const cv = C.createNode("Canvas"); C.addChild(tree, tree.id, cv);
+  const ic = C.createNode("ItemsControl"); ic.bindings.ItemsSource = "Rects";
+  ic.model = model;
+  C.addChild(tree, cv.id, ic);
+  return { tree, cv, ic };
+}
+
+/* -- G2: templateShape Ellipse / Rectangle item template -- */
+test("G2: templateShape Ellipse emits an Ellipse item template bound to Width/Height/Fill", () => {
+  const { tree } = canvasItemsControl({
+    mode: "typed", className: "RectItem", canvasItems: true, templateShape: "Ellipse",
+    fields: [{ name: "Width", type: "double" }, { name: "Height", type: "double" },
+             { name: "Brush", type: "IBrush" }],
+  });
+  const { axaml } = C.generate(tree);
+  xmlBalanced(axaml);
+  includes(axaml, "<ItemsControl.ItemTemplate>");
+  includes(axaml, '<DataTemplate x:DataType="vm:RectItem">');
+  includes(axaml, '<Ellipse Width="{Binding Width}" Height="{Binding Height}" Fill="{Binding Brush}"/>');
+  /* the shape template REPLACES the debug StackPanel+TextBlock list */
+  notIncludes(axaml, '<StackPanel Orientation="Horizontal" Spacing="8">',
+    "shape template replaces the debug list");
+});
+test("G2: templateShape Rectangle without a brush field falls back to a default Fill", () => {
+  const { tree } = canvasItemsControl({
+    mode: "typed", className: "Box", canvasItems: true, templateShape: "Rectangle",
+    fields: [{ name: "Width", type: "double" }, { name: "Height", type: "double" }],
+  });
+  const { axaml } = C.generate(tree);
+  xmlBalanced(axaml);
+  includes(axaml, '<Rectangle Width="{Binding Width}" Height="{Binding Height}" Fill="SteelBlue"/>');
+  notIncludes(axaml, "Fill=\"{Binding", "no Fill binding without an IBrush field");
+});
+test("G2: unset templateShape keeps today's debug-list template byte-for-byte", () => {
+  /* byte-for-byte: the exact template the existing 'typed model AXAML' test asserts */
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const lb = C.createNode("ListBox"); lb.bindings.ItemsSource = "Items";
+  lb.model = { mode: "typed", className: "Item",
+    fields: [{ name: "Title", type: "string" }, { name: "Color", type: "IBrush" }] };
+  C.addChild(tree, sp.id, lb);
+  const { axaml } = C.generate(tree);
+  includes(axaml, '<StackPanel Orientation="Horizontal" Spacing="8">');
+  includes(axaml, '<TextBlock Text="{Binding Title}"/>');
+  notIncludes(axaml, "<Ellipse", "no shape emitted when templateShape is unset");
+});
+
+/* -- G6: nested model -> vm:Outer+Inner DataType -- */
+test("G6: nested model emits the vm:Outer+Inner compiled-binding DataType", () => {
+  const { tree } = canvasItemsControl({
+    mode: "typed", className: "RectItem", canvasItems: true, nested: true,
+    fields: [{ name: "Width", type: "double" }, { name: "Brush", type: "IBrush" }],
+  });
+  const { axaml } = C.generate(tree);
+  xmlBalanced(axaml);
+  /* both the item template AND the ContentPresenter canvas style use the + form */
+  includes(axaml, '<DataTemplate x:DataType="vm:MainWindowViewModel+RectItem">');
+  includes(axaml, '<Style Selector="ContentPresenter" x:DataType="vm:MainWindowViewModel+RectItem">');
+  notIncludes(axaml, 'x:DataType="vm:RectItem"', "bare class name must not appear when nested");
+});
+test("G6: nested model with an explicit outerClass qualifies against it", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const lb = C.createNode("ListBox"); lb.bindings.ItemsSource = "Days";
+  lb.model = { mode: "typed", className: "WeekDayItem", nested: true, outerClass: "ShellViewModel",
+    fields: [{ name: "Day", type: "string" }] };
+  C.addChild(tree, sp.id, lb);
+  const { axaml } = C.generate(tree);
+  includes(axaml, '<DataTemplate x:DataType="vm:ShellViewModel+WeekDayItem">');
+});
+test("G6: a non-nested model keeps the bare DataType (byte-for-byte default)", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const lb = C.createNode("ListBox"); lb.bindings.ItemsSource = "Items";
+  lb.model = { mode: "typed", className: "Item", fields: [{ name: "Name", type: "string" }] };
+  C.addChild(tree, sp.id, lb);
+  const { axaml } = C.generate(tree);
+  includes(axaml, '<DataTemplate x:DataType="vm:Item">');
+  notIncludes(axaml, "+", "no + qualifier for a non-nested model");
+});
+
+/* -- G6: SelectedItems multi-select binding -- */
+test("G6: SelectedItems catalog prop exists and binds to a VM ObservableCollection", () => {
+  ok(C.CATALOG.ListBox.props.some((p) => p.name === "SelectedItems" && p.bindable),
+    "ListBox exposes a bindable SelectedItems");
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const lb = C.createNode("ListBox"); lb.props.SelectionMode = "Multiple";
+  lb.bindings.ItemsSource = "Days"; lb.bindings.SelectedItems = "PickedDays";
+  lb.model = { mode: "typed", className: "WeekDayItem", fields: [{ name: "Day", type: "string" }] };
+  C.addChild(tree, sp.id, lb);
+  const { axaml, viewModel } = C.generate(tree);
+  xmlBalanced(axaml);
+  includes(axaml, 'SelectedItems="{Binding PickedDays}"');
+  includes(viewModel, "public ObservableCollection<WeekDayItem> PickedDays { get; } = new();");
+  includes(viewModel, "using System.Collections.ObjectModel;");
+});
+test("G6: SelectedItems on a strings ListBox binds a string collection", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const lb = C.createNode("ListBox"); lb.props.SelectionMode = "Multiple";
+  lb.bindings.ItemsSource = "Items"; lb.bindings.SelectedItems = "Picked";
+  C.addChild(tree, sp.id, lb);
+  const { viewModel } = C.generate(tree);
+  includes(viewModel, "public ObservableCollection<string> Picked { get; } = new();");
+});
+
+/* -- G8: projectNamespace stamps xmlns:vm / x:Class / namespace -- */
+test("G8: projectNamespace stamps through axaml, viewModel and model panes", () => {
+  const tree = C.createNode("Window");
+  tree.projectNamespace = "MealPlanner";
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const lb = C.createNode("ListBox"); lb.bindings.ItemsSource = "Items";
+  lb.model = { mode: "typed", className: "Item", fields: [{ name: "Name", type: "string" }] };
+  C.addChild(tree, sp.id, lb);
+  const gen = C.generate(tree);
+  xmlBalanced(gen.axaml);
+  includes(gen.axaml, 'xmlns:vm="using:MealPlanner.ViewModels"');
+  includes(gen.axaml, 'x:Class="MealPlanner.Views.MainWindow"');
+  includes(gen.viewModel, "namespace MealPlanner.ViewModels;");
+  includes(gen.model, "namespace MealPlanner.ViewModels;");
+  notIncludes(gen.axaml, "ExamApp", "ExamApp fully replaced by the project namespace");
+  notIncludes(gen.viewModel, "namespace ExamApp", "VM namespace replaced");
+});
+test("G8: projectNamespace also drives the flat submission pair (single namespace)", () => {
+  const tree = C.createNode("Window");
+  tree.projectNamespace = "MealPlanner";
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const lb = C.createNode("ListBox"); lb.bindings.ItemsSource = "Items";
+  lb.model = { mode: "typed", className: "RectItem",
+    fields: [{ name: "Width", type: "double" }, { name: "Brush", type: "IBrush" }] };
+  C.addChild(tree, sp.id, lb);
+  const sub = C.submission(tree);
+  eq(sub.files.length, 2, "still a flat two-file pair");
+  includes(sub.viewModel, "namespace MealPlanner.ViewModels;");
+  eq(sub.viewModel.split("namespace MealPlanner.ViewModels;").length - 1, 1, "one namespace decl");
+  includes(sub.viewModel, "public partial class RectItem : ObservableObject");
+  eq(C.foreignUsings(sub.viewModel).length, 0, "no foreign usings");
+});
+test("G8: unset projectNamespace keeps ExamApp byte-for-byte (projzip rewrite path)", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const tb = C.createNode("TextBox"); tb.bindings.Text = "Name"; C.addChild(tree, sp.id, tb);
+  const gen = C.generate(tree);
+  includes(gen.axaml, 'xmlns:vm="using:ExamApp.ViewModels"');
+  includes(gen.axaml, 'x:Class="ExamApp.Views.MainWindow"');
+  includes(gen.viewModel, "namespace ExamApp.ViewModels;");
+});
+
+/* -- G8: a sized ItemsControl propagates Width/Height into the inner Canvas + clamps -- */
+test("G8: sized ItemsControl sizes the inner Canvas and the clamp constants", () => {
+  const tree = C.createNode("Window");
+  const root = C.createNode("DockPanel"); C.addChild(tree, tree.id, root);
+  const bar = C.createNode("StackPanel"); bar.props["DockPanel.Dock"] = "Top"; C.addChild(tree, root.id, bar);
+  const btn = C.createNode("Button"); btn.bindings.Command = "AddCommand";
+  btn.recipes = { Command: "add-random-item" }; C.addChild(tree, bar.id, btn);
+  const cv = C.createNode("Canvas"); C.addChild(tree, root.id, cv);
+  const ic = C.createNode("ItemsControl"); ic.bindings.ItemsSource = "Rectangles";
+  ic.props.Width = 500; ic.props.Height = 350;
+  ic.model = { mode: "typed", className: "RectItem", canvasItems: true,
+    fields: [{ name: "X", type: "double" }, { name: "Y", type: "double" },
+             { name: "Width", type: "double" }, { name: "Height", type: "double" },
+             { name: "Brush", type: "IBrush" }] };
+  C.addChild(tree, cv.id, ic);
+  const { axaml, viewModel } = C.generate(tree);
+  xmlBalanced(axaml);
+  /* inner items-panel Canvas is sized to the host */
+  includes(axaml, '<Canvas Width="500" Height="350"/>');
+  notIncludes(axaml, "<Canvas/>", "the items-panel Canvas is no longer bare when sized");
+  /* clamp constants follow the host size so spawned items stay in view */
+  includes(viewModel, "private const double CanvasWidth = 500;");
+  includes(viewModel, "private const double CanvasHeight = 350;");
+});
+test("G8: an unsized ItemsControl keeps the bare Canvas and 400/300 clamps (byte-for-byte)", () => {
+  const tree = C.createNode("Window");
+  const root = C.createNode("DockPanel"); C.addChild(tree, tree.id, root);
+  const bar = C.createNode("StackPanel"); bar.props["DockPanel.Dock"] = "Top"; C.addChild(tree, root.id, bar);
+  const btn = C.createNode("Button"); btn.bindings.Command = "AddCommand";
+  btn.recipes = { Command: "add-random-item" }; C.addChild(tree, bar.id, btn);
+  const cv = C.createNode("Canvas"); C.addChild(tree, root.id, cv);
+  const ic = C.createNode("ItemsControl"); ic.bindings.ItemsSource = "Rectangles";
+  ic.model = { mode: "typed", className: "RectItem", canvasItems: true,
+    fields: [{ name: "X", type: "double" }, { name: "Y", type: "double" },
+             { name: "Width", type: "double" }, { name: "Height", type: "double" },
+             { name: "Brush", type: "IBrush" }] };
+  C.addChild(tree, cv.id, ic);
+  const { axaml, viewModel } = C.generate(tree);
+  includes(axaml, "<Canvas/>");
+  includes(viewModel, "private const double CanvasWidth = 400;");
+  includes(viewModel, "private const double CanvasHeight = 300;");
+});

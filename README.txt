@@ -37,11 +37,18 @@ VISUAL DESIGNER Build the window VISUALLY: drag containers, controls and shapes
                 Drop in a REFERENCE IMAGE to trace an exam screenshot behind the
                 canvas. It generates the matching MainWindow.axaml + ViewModel,
                 ready to copy. Save named designs; the Export button downloads
-                them as JSON to carry between machines. The green "Export project
-                (.zip)" button downloads a COMPLETE runnable Avalonia project
-                (csproj with the exact 11.2.1 + Mvvm 8.2.1 versions, Program.cs,
-                App.axaml, Views, ViewModels, Models) - unzip, dotnet build,
-                dotnet run, no assembling. Both exam presets export green.
+                them as JSON to carry between machines. ItemsControl items can now
+                render as a real Ellipse or Rectangle template (Width / Height /
+                Fill bound) instead of the debug text list, the ListBox catalog
+                exposes SelectedItems for multi-select straight from the ViewModel,
+                a model class nested inside the ViewModel emits the qualified
+                "vm:Outer+Inner" DataType compiled bindings need, and a sized
+                ItemsControl carries its Width / Height into the inner Canvas and
+                the clamp constants. The green "Export project (.zip)" button
+                downloads a COMPLETE runnable Avalonia project (csproj with the
+                exact 11.2.1 + Mvvm 8.2.1 versions, Program.cs, App.axaml, Views,
+                ViewModels, Models) - unzip, dotnet build, dotnet run, no
+                assembling. Both exam presets export green.
 
 ANALYSIS LAB    Paste the Problem 1 console project. It scans for OOP/SOLID
                 violations (downcasts, new-in-constructor, NotImplemented stubs,
@@ -74,6 +81,13 @@ TEST LAB        Paste the Problem 3 class or ViewModel, choose the test kinds,
                 ViewModel command tests, a headless Avalonia scaffold
                 (AvaloniaTestApplication + [AvaloniaFact]), timing-tolerant async
                 patterns, plus the EXACT-version .csproj and an offline runbook.
+                The headless test now drives the REAL control the way the grader
+                rewards: it shows the window, FindControl<Button> and
+                FindControl<TextBlock> by name, asserts both exist, clicks the
+                button through its Command, then asserts the bound TextBlock text -
+                no more calling vm.Command.Execute directly. You can also point the
+                generated test project at the real namespace, view class, and
+                ProjectReference instead of the Starter Kit defaults.
                 For each public method it proposes a Positive / Negative / Edge
                 (P/N/E) trio so you cover the happy path, the guard, and the
                 boundary. Real asserts are filled in where derivable; everything
@@ -90,7 +104,13 @@ QUERY LAB       Paste the Problem 4 JSON and it infers the C# model (missing /
                 checks, nested Any, sort, group + aggregate, above-average, top N,
                 select fields, binary search - reorder them, and copy ONE complete
                 Program.cs: null-safe deserialize, every query in order, console
-                printing, and a results JSON with the EXACT key names. If the exam
+                printing, and a results JSON with the EXACT key names. Scalar
+                filters are now null- and type-aware: an "is empty/missing" row
+                emits "x.Field == null" (no quotes), a nested Any on an int field
+                emits a bare "t.Year == 2245" that compiles, a filter row can carry
+                a compound AND so one query says "x.HomePort == "Gullhaven" &&
+                x.Items.Any(...)", and above-average can exclude nulls so missing
+                values do not drag the average to zero. If the exam
                 ships a CSV file instead of JSON, paste it anyway and Query Lab
                 auto-detects it, shows a "CSV mode" badge, and generates a System-only
                 ParseCsv helper (File.ReadAllLines plus a quote-aware split, no

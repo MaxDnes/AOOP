@@ -917,3 +917,230 @@ test("csv UI: a .csv input file name renames the class to a singular (products.c
   /* and the generated code uses that class name in ParseCsv */
   includes(f.els["ql-output"].innerHTML, "Product", "generated code references the derived class");
 });
+
+/* ============================================================
+   spec 19 (G4 + G5): null/empty-equality, type-aware nested-any,
+   compound andWhere, sort nullValue, above-average excludeNull.
+   Each new mode emits exact C#; every default stays byte-unchanged.
+   These trace to the 2026-06-13 sim failures:
+   A-P4 Q2 (Keeper == null), A-P4 Q5 (Year == 2245 int nested-any +
+   compound homePort AND), B-P4 Q2 (empty CSV cell == null),
+   B-P4 Q3 (Signups ?? 0 sort), B-P4 Q4 (above-average excluding nulls).
+   ============================================================ */
+
+/* a lighthouses-like JSON: nullable scalar keeper, nested inspections with an
+   int year sub-field, a homePort root field (for the compound-AND case). */
+const LIGHTHOUSE_SAMPLE = JSON.stringify([
+  {
+    "id": "L1", "name": "North Point", "keeper": "Halloran", "homePort": "Gullhaven",
+    "inspections": [{ "inspectionId": "I1", "year": 2244 }, { "inspectionId": "I2", "year": 2245 }],
+  },
+  { "id": "L2", "name": "South Reef", "keeper": null, "homePort": "Tidewater", "inspections": [] },
+]);
+
+/* a workshops-like CSV with a planted empty Instructor cell (-> null) and a
+   nullable int Signups column (one empty). Mirrors exam B P4. */
+const WORKSHOP_CSV = [
+  "id,title,tag,signups,instructor",
+  "1,Joinery,Woodworking,12,Ada",
+  "2,Turning,Woodworking,,",
+  "3,Welding,Metalwork,7,Grace",
+].join("\n");
+
+/* --- G4a: filter-equals null/empty match mode --- */
+test("G4a: filter-equals match:null emits `field == null` (no quotes), not `== \"null\"`", () => {
+  const m = modelOf(LIGHTHOUSE_SAMPLE);
+  const code = genRow(m, { shape: "filter-equals", field: "keeper", match: "null", name: "noKeeper", output: true, outputKey: "noKeeper" });
+  includes(code, "s.Keeper == null");
+  notIncludes(code, 's.Keeper == "null"', "null mode must not quote the literal");
+  notIncludes(code, 's.Keeper == ""', "null mode must not emit an empty-string compare");
+  braceBalanced(code); parenBalanced(code);
+});
+
+test("G4a: a row whose value is the JS null literal also emits `== null`", () => {
+  const m = modelOf(LIGHTHOUSE_SAMPLE);
+  const code = genRow(m, { shape: "filter-equals", field: "keeper", value: null, name: "noKeeper" });
+  includes(code, "s.Keeper == null");
+});
+
+test("G4a CSV: empty Instructor cell stored as null -> filter-equals null mode emits `== null` not `== \"\"`", () => {
+  const m = modelOf(WORKSHOP_CSV);   /* UI posture: allNullable */
+  const code = C.generateProgram(m, [
+    { shape: "filter-equals", field: "instructor", match: "null", name: "missingInstructor", output: true, outputKey: "missingInstructor" },
+  ], { inputFile: "workshops.csv", namespace: "Workshops" });
+  includes(code, "s.Instructor == null");
+  notIncludes(code, 's.Instructor == ""', "CSV empty-is-null: must compare to null, not the empty string");
+  braceBalanced(code); parenBalanced(code);
+});
+
+test("G4a: filter-equals happy path (plain value) is byte-unchanged", () => {
+  const m = modelOf(LIGHTHOUSE_SAMPLE);
+  const code = genRow(m, { shape: "filter-equals", field: "name", value: "North Point", name: "q1" });
+  includes(code, 's.Name == "North Point"');
+  notIncludes(code, "== null", "a normal value compare must not become a null compare");
+});
+
+/* --- G4b: type-aware nested-any default (equals) branch --- */
+test("G4b: nested-any equals on an int sub-field emits a bare literal `== 2245` (CS0019 fix)", () => {
+  const m = modelOf(LIGHTHOUSE_SAMPLE);
+  const code = genRow(m, { shape: "filter-nested-any", collection: "inspections", subField: "year", value: "2245", name: "y2245", output: true, outputKey: "y2245" });
+  includes(code, ".Any(t => t.Year == 2245)");
+  notIncludes(code, 't.Year == "2245"', "int sub-field must not be compared to a string literal (CS0019)");
+  braceBalanced(code); parenBalanced(code);
+});
+
+test("G4b: nested-any equals on a string sub-field stays quoted (no regression)", () => {
+  const m = modelOf(LIGHTHOUSE_SAMPLE);
+  const code = genRow(m, { shape: "filter-nested-any", collection: "inspections", subField: "inspectionId", value: "I1", name: "byId" });
+  includes(code, '.Any(t => t.InspectionId == "I1")');
+});
+
+test("G4b: nested-any null + year modes unchanged", () => {
+  const m = modelOf(SHIP_SAMPLE);
+  const nullCode = genRow(m, { shape: "filter-nested-any", collection: "travelHistory", subField: "arrivalDate", match: "null", name: "q1" });
+  includes(nullCode, ".Any(t => t.ArrivalDate == null)");
+  const nestedName = m.byName[m.rootClass].fields.find((f) => f.key === "travelHistory").nestedClass;
+  const yearCode = genRow(m, { shape: "filter-nested-any", collection: "travelHistory", subField: "departureDate", match: "year", value: "2245", name: "q1" },
+    { overrides: { [nestedName + ".departureDate"]: "DateTime" } });
+  includes(yearCode, "?.Year == 2245");
+});
+
+/* --- G5a: compound andWhere on filter-nested-any --- */
+test("G5a: filter-nested-any with andWhere emits root predicate && Any(...) in one query", () => {
+  const m = modelOf(LIGHTHOUSE_SAMPLE);
+  const code = genRow(m, {
+    shape: "filter-nested-any", collection: "inspections", subField: "year", value: "2245",
+    andWhere: { field: "homePort", value: "Gullhaven" }, name: "gullhaven2245", output: true, outputKey: "gullhaven2245",
+  });
+  includes(code, 's.HomePort == "Gullhaven" && ');
+  includes(code, ".Any(t => t.Year == 2245)");
+  braceBalanced(code); parenBalanced(code);
+});
+
+test("G5a: andWhere op null emits `field == null && Any(...)`; absent andWhere is byte-unchanged", () => {
+  const m = modelOf(LIGHTHOUSE_SAMPLE);
+  const withNull = genRow(m, {
+    shape: "filter-nested-any", collection: "inspections", subField: "year", value: "2245",
+    andWhere: { field: "keeper", op: "null" }, name: "q1",
+  });
+  includes(withNull, "s.Keeper == null && ");
+  /* no andWhere -> plain single-predicate Any, exactly as before */
+  const plain = genRow(m, { shape: "filter-nested-any", collection: "inspections", subField: "year", value: "2245", name: "q1" });
+  notIncludes(plain, " && ", "without andWhere there is no compound predicate");
+  includes(plain, ".Any(t => t.Year == 2245)");
+});
+
+/* --- G5b: sort-by nullValue (`?? n`) --- */
+test("G5b: sort-by with nullValue 0 on a nullable int emits `OrderByDescending(s => s.Signups ?? 0)`", () => {
+  const m = modelOf(WORKSHOP_CSV);
+  const code = C.generateProgram(m, [
+    { shape: "sort-by", field: "signups", direction: "desc", nullValue: "0", name: "sortedBySignups", output: true, outputKey: "sortedBySignups" },
+  ], { inputFile: "workshops.csv", namespace: "Workshops" });
+  includes(code, "OrderByDescending(s => s.Signups ?? 0)");
+  braceBalanced(code); parenBalanced(code);
+});
+
+test("G5b: sort-by without nullValue is byte-unchanged (bare key)", () => {
+  const m = modelOf(WORKSHOP_CSV);
+  const code = C.generateProgram(m, [
+    { shape: "sort-by", field: "signups", direction: "desc", name: "sortedBySignups" },
+  ], { inputFile: "workshops.csv", namespace: "Workshops" });
+  includes(code, "OrderByDescending(s => s.Signups)");
+  notIncludes(code, "?? 0", "no nullValue means no coalesce");
+});
+
+test("G5b: sort-by byCount still uses ?.Count ?? 0 and ignores nullValue (no double-coalesce)", () => {
+  const m = modelOf(SHIP_SAMPLE);
+  const code = genRow(m, { shape: "sort-by", field: "travelHistory", byCount: true, direction: "desc", nullValue: "0", name: "q1" });
+  includes(code, "OrderByDescending(s => s.TravelHistory?.Count ?? 0)");
+  notIncludes(code, "Count ?? 0 ?? 0", "byCount path must not stack a second coalesce");
+});
+
+/* --- G5c: above-average excludeNull --- */
+test("G5c: above-average excludeNull averages known values only and guards the outer Where", () => {
+  const m = modelOf(WORKSHOP_CSV);
+  const code = C.generateProgram(m, [
+    { shape: "above-average", field: "signups", excludeNull: true, name: "aboveAverageSignups", output: true, outputKey: "aboveAverageSignups" },
+  ], { inputFile: "workshops.csv", namespace: "Workshops" });
+  /* pre-filter to known values, average their non-null .Value */
+  includes(code, "var knownSignups = source.Where(r => r.Signups != null).ToList();");
+  includes(code, "double aboveAverageSignupsAverage = knownSignups.Any() ? knownSignups.Average(r => r.Signups!.Value) : 0;");
+  /* outer Where guards null and compares strictly greater */
+  includes(code, "s.Signups != null && s.Signups.Value > aboveAverageSignupsAverage");
+  notIncludes(code, "r.Signups ?? 0", "excludeNull must not coalesce missing values to 0 in the average");
+  notIncludes(code, ">= aboveAverageSignupsAverage", "strictly greater");
+  braceBalanced(code); parenBalanced(code);
+});
+
+test("G5c: above-average WITHOUT excludeNull is byte-unchanged (?? 0 over full source)", () => {
+  const m = modelOf(WORKSHOP_CSV);
+  const code = C.generateProgram(m, [
+    { shape: "above-average", field: "signups", name: "aboveAverageSignups" },
+  ], { inputFile: "workshops.csv", namespace: "Workshops" });
+  includes(code, "double aboveAverageSignupsAverage = source.Any() ? source.Average(r => r.Signups ?? 0) : 0;");
+  includes(code, "(s.Signups ?? 0) > aboveAverageSignupsAverage");
+  notIncludes(code, "knownSignups", "default path must not pre-filter");
+});
+
+test("G5c: above-average byCount path unaffected by excludeNull (collection counts have no nulls)", () => {
+  const sample = JSON.stringify([{ "name": "A", "ingredients": ["x", "y"] }, { "name": "B", "ingredients": ["z"] }]);
+  const m = modelOf(sample);
+  const code = genRow(m, { shape: "above-average", field: "ingredients", byCount: true, excludeNull: true, name: "q1" });
+  includes(code, "double q1Average = source.Any() ? source.Average(");
+  includes(code, "> q1Average)");
+  notIncludes(code, "known", "byCount path keeps the count-average idiom");
+});
+
+/* --- presets remain byte-unchanged (the existing 466 prove it; pin here too) --- */
+test("spec19: both presets still generate byte-identical happy-path code", () => {
+  const summer = C.generateFromPreset(C.summerPreset());
+  ok(summer.ok, "summer preset still generates");
+  includes(summer.code, "?.Year == 2245");
+  includes(summer.code, ".Any(t => t.ArrivalDate == null)");
+  notIncludes(summer.code, "knownTrav", "summer preset must not gain a known-filter");
+  const reexam = C.generateFromPreset(C.reexamPreset());
+  ok(reexam.ok, "reexam preset still generates");
+  includes(reexam.code, "OrderByDescending(s => s.Ingredients?.Count ?? 0)");
+  includes(reexam.code, "double aboveAverageIngredientsAverage = source.Any() ? source.Average(");
+  braceBalanced(summer.code); parenBalanced(summer.code);
+  braceBalanced(reexam.code); parenBalanced(reexam.code);
+});
+
+/* --- UI reachability: new controls render and wire to state --- */
+test("spec19 UI: filter-equals null mode hides the value box and sets match", () => {
+  const f = freshUI();
+  f.QL.setJson(LIGHTHOUSE_SAMPLE);
+  f.QL.addQuery();
+  f.QL.setRow(0, "field", "keeper");
+  f.QL.setRow(0, "match", "null");
+  const rowsHtml = f.els["ql-rows"].innerHTML;
+  includes(rowsHtml, "== null (empty/missing)", "eqMatch dropdown offers the null mode");
+  /* generated output must carry the null compare (innerHTML is HTML-rendered code) */
+  includes(f.els["ql-output"].innerHTML, "s.Keeper == null");
+});
+
+test("spec19 UI: setAndWhere wires a compound AND onto a nested-Any row, clears on blank field", () => {
+  const f = freshUI();
+  f.QL.setJson(LIGHTHOUSE_SAMPLE);
+  f.QL.addQuery();
+  f.QL.setRow(0, "shape", "filter-nested-any");
+  f.QL.setRow(0, "collection", "inspections");
+  f.QL.setRow(0, "subField", "year");
+  f.QL.setRow(0, "value", "2245");
+  f.QL.setAndWhere(0, "field", "homePort");
+  f.QL.setAndWhere(0, "value", "Gullhaven");
+  /* the output card HTML-escapes the code for display: `&&` -> `&amp;&amp;`,
+     `"` -> `&quot;`. Assert against the rendered (escaped) form. */
+  includes(f.els["ql-output"].innerHTML, "s.HomePort == &quot;Gullhaven&quot; &amp;&amp; ");
+  /* blanking the field removes the compound predicate */
+  f.QL.setAndWhere(0, "field", "");
+  notIncludes(f.els["ql-output"].innerHTML, "HomePort ==", "clearing andWhere field drops the predicate");
+});
+
+test("spec19 UI: setAndWhere is exported on window.QL", () => {
+  global.window = global;
+  require("../data/querylab-core.js");
+  delete require.cache[require.resolve("../data/querylab.js")];
+  require("../data/querylab.js");
+  ok(typeof global.QL.setAndWhere === "function", "QL.setAndWhere must be exported");
+});

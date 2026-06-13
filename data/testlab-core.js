@@ -868,18 +868,42 @@
     }
   }
 
-  /* ---- Generator 3: headless scaffold (TestAppBuilder + HeadlessUiTests) ---- */
+  /* ---- Generator 3: headless scaffold (TestAppBuilder + HeadlessUiTests) ----
+     G1: the rubric rewards FINDING and CLICKING the real control, so the test
+     must FindControl<Button>(name) + FindControl<TextBlock>(name), assert both
+     are non-null, drive the button through its bound Command (a click, never an
+     awaited VM command — awaiting could block a looping command and hang the
+     headless host), then assert the bound TextBlock text.
+     G9: the target namespace and the view-class name are options. The view
+     class defaults to MainWindow and is NEVER derived by stripping "ViewModel"
+     off the VM name; the namespace defaults to ExamApp. Control names come from
+     the parsed view when the caller passes them, else a clearly-marked
+     placeholder constant the student edits to match the view's Name="...". */
   function genHeadless(opts) {
     opts = opts || {};
     var vm = opts.viewModel || "MainWindowViewModel";
-    var win = opts.window || "MainWindow";
-    var cmd = opts.command || null;       /* a RelayCommand member to click N times */
+    /* G9: view class defaults to MainWindow, not <VM stripped of "ViewModel"> */
+    var win = opts.viewClass || opts.window || "MainWindow";
+    var cmd = opts.command || null;       /* a RelayCommand member, for the comment only */
+    /* G9: target namespace (the app project's root namespace). The test
+       namespace tracks it (<app>.Tests) unless given explicitly, so a custom
+       app namespace produces matching test/using namespaces. With no options
+       both default to ExamApp / ExamApp.Tests, byte-for-byte as before. */
+    var appNs = opts.targetNamespace || opts.namespace || "ExamApp";
+    var testNs = opts.testNamespace ||
+      (opts.targetNamespace || opts.namespace ? appNs + ".Tests" : NS);
+    /* G1: real control names. Pulled from the parsed view when the caller has
+       them; otherwise a clearly-marked placeholder the student renames. */
+    var hasButtonName = !!opts.buttonName;
+    var hasTextName = !!opts.textName;
+    var buttonName = opts.buttonName || "ClickButton";
+    var textName = opts.textName || "ResultText";
 
     /* TestAppBuilder.cs — verbatim structure from the Starter Kit */
     var builder = [
       "using Avalonia;",
       "using Avalonia.Headless;",
-      "using ExamApp;",
+      "using " + appNs + ";",
       "",
       "[assembly: AvaloniaTestApplication(typeof(TestAppBuilder))]",
       "",
@@ -891,39 +915,54 @@
       "",
     ].join("\n");
 
-    /* HeadlessUiTests.cs — the classic 100-invocation test */
-    var clickLine = cmd
-      ? "            vm." + cmd + ".Execute(null);"
-      : "            // vm.YourCommand.Execute(null); // TODO: name the command to drive";
+    /* HeadlessUiTests.cs — find the real Button + TextBlock, click, assert text */
+    var nameNote = (hasButtonName && hasTextName)
+      ? "        // Control names taken from the parsed view's Name=\"...\" attributes."
+      : "        // TODO: rename \"" + buttonName + "\" / \"" + textName + "\" to the Name=\"...\" your AXAML gives the\n" +
+        "        // button and the result TextBlock (FindControl returns null otherwise).";
     var ui = [
       "using Avalonia.Controls;",
       "using Avalonia.Headless;",
       "using Avalonia.Headless.XUnit;",
-      "using ExamApp.ViewModels;",
-      "using ExamApp.Views;",
+      "using " + appNs + ".ViewModels;",
+      "using " + appNs + ".Views;",
+      "using Xunit;",
       "",
-      "namespace " + NS + ";",
+      "namespace " + testNs + ";",
       "",
-      "// Headless Avalonia UI test: a real Window + simulated input, no rendering.",
+      "// Headless Avalonia UI test: a real Window + a real Button click, no rendering.",
+      "// The rubric rewards locating and clicking the control, not calling the VM",
+      "// command directly, so this finds the Button and the bound TextBlock by name.",
       "public class HeadlessUiTests",
       "{",
       "    [AvaloniaFact]",
-      "    public void Window_DrivingCommand_UpdatesState()",
+      "    public void ClickingButton_UpdatesBoundText()",
       "    {",
       "        // Arrange: build the VM and show the window (Show() is required, even headless)",
       "        var vm = new " + vm + "();",
       "        var window = new " + win + " { DataContext = vm };",
       "        window.Show();",
       "",
-      "        // Act: invoke the command N times (the classic 100-click loop)",
+      "        // Locate the real controls by Name (these become null if the names don't match)",
+      nameNote,
+      "        var button = window.FindControl<Button>(\"" + buttonName + "\");",
+      "        var text = window.FindControl<TextBlock>(\"" + textName + "\");",
+      "        Assert.NotNull(button);",
+      "        Assert.NotNull(text);",
+      "",
+      "        // Act: click the real button N times via its bound Command (a click, not an",
+      "        // awaited VM call — awaiting a looping command would block the headless host).",
       "        for (var i = 0; i < 100; i++)",
       "        {",
-      clickLine,
+      "            button!.Command?.Execute(button.CommandParameter);",
       "        }",
       "",
-      "        // Assert",
-      "        // TODO: assert the resulting state, e.g. a collection count or a property value",
-      "        Assert.NotNull(window);",
+      "        // Assert: the bound TextBlock reflects the new state.",
+      (cmd
+        ? "        // (the button is bound to " + cmd + " in the AXAML)"
+        : "        // (bind the button's Command to the relevant RelayCommand in the AXAML)"),
+      "        // TODO: assert the expected text, e.g. Assert.Equal(\"100\", text!.Text);",
+      "        Assert.NotNull(text!.Text);",
       "    }",
       "}",
       "",
@@ -1639,8 +1678,14 @@
     return L.join("\n") + "\n";
   }
 
-  /* ---- Generator 5: csproj ---- */
-  function genCsproj() {
+  /* ---- Generator 5: csproj ----
+     G9: the ProjectReference path is an option so the generated test project
+     can reference the REAL project under test instead of the hardcoded Starter
+     Kit path. Default stays ..\ExamApp\ExamApp.csproj (byte-for-byte unchanged
+     when no option is passed). */
+  function genCsproj(opts) {
+    opts = opts || {};
+    var projRef = opts.projectReference || "..\\ExamApp\\ExamApp.csproj";
     var lines = [
       '<Project Sdk="Microsoft.NET.Sdk">',
       "  <PropertyGroup>",
@@ -1659,7 +1704,7 @@
       "  </ItemGroup>",
       "",
       "  <ItemGroup>",
-      '    <ProjectReference Include="..\\ExamApp\\ExamApp.csproj" />',
+      '    <ProjectReference Include="' + projRef + '" />',
       "  </ItemGroup>",
       "",
       "  <ItemGroup>",
@@ -1922,18 +1967,25 @@
     });
 
     if (options.headless) {
-      /* derive VM/Window names from the model where possible */
+      /* derive the VM name from the model; the VIEW class does NOT come from
+         stripping "ViewModel" (G9) — that produced types like `Counter` that
+         don't exist. It defaults to MainWindow, overridable via options. */
       var vmCls = testable.filter(function (c) { return c.isToolkitViewModel; })[0];
       var vmName = vmCls ? vmCls.name : "MainWindowViewModel";
-      var winName = vmName.replace(/ViewModel$/, "");
-      if (winName === vmName) winName = "MainWindow";
+      var winName = options.viewClass || "MainWindow";
       var driveCmd = vmCls && vmCls.commands[0] ? vmCls.commands[0].command : null;
-      genHeadless({ viewModel: vmName, window: winName, command: driveCmd })
-        .forEach(function (f) { out.push(f); });
+      genHeadless({
+        viewModel: vmName,
+        viewClass: winName,
+        command: driveCmd,
+        targetNamespace: options.targetNamespace,
+        buttonName: options.buttonName,
+        textName: options.textName,
+      }).forEach(function (f) { out.push(f); });
     }
 
     if (options.csproj) {
-      out.push(genCsproj());
+      out.push(genCsproj({ projectReference: options.projectReference }));
       out.push({ fileName: "RUNBOOK.txt", code: runbook().join("\n") + "\n" });
     }
 

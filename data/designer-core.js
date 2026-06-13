@@ -191,6 +191,9 @@
       props: [
         { name: "ItemsSource", kind: "none", bindable: true, vmType: "collection" },
         { name: "SelectedItem", kind: "none", bindable: true, vmType: "selectedItem" },
+        /* SelectedItems: two-way sync of the multi-selection from the VM (G6). Binds to
+           an IList the VM exposes/observes; lets selection sync without hand-editing. */
+        { name: "SelectedItems", kind: "none", bindable: true, vmType: "selectedItems" },
         { name: "Height", kind: "number" },
         { name: "SelectionMode", kind: "select", options: ["Single", "Multiple"] },
         { name: "Margin", kind: "text" },
@@ -513,7 +516,36 @@
       if (!have.Y) augmented.push({ name: "Y", type: "double" });
       fields = augmented;
     }
-    return { className, fields, canvasItems: !!m.canvasItems };
+    const out = { className, fields, canvasItems: !!m.canvasItems };
+    /* G8: carry an explicit host Width/Height so the VM clamp constants and the inner
+       Canvas agree. Unset stays null -> the 400/300 defaults are kept byte-for-byte. */
+    if (out.canvasItems) out.canvasBounds = canvasBoundsOf(node);
+    /* G2: an item-template shape (Ellipse / Rectangle) replaces the debug list */
+    if (m.templateShape === "Ellipse" || m.templateShape === "Rectangle") {
+      out.templateShape = m.templateShape;
+    }
+    /* G6: a model class nested inside the ViewModel needs the vm:Outer+Inner
+       compiled-binding DataType. outerClass defaults to the VM class name. */
+    if (m.nested) {
+      out.nested = true;
+      out.outerClass = (m.outerClass || "MainWindowViewModel").trim() || "MainWindowViewModel";
+    }
+    return out;
+  }
+
+  /* the x:DataType reference for an item model: the bare class name, or the nested
+     CLR form vm:Outer+Inner when the model class lives inside the ViewModel (G6).
+     Compiled bindings (x:CompileBindings) require the runtime '+' nested-type name. */
+  function dataTypeName(model) {
+    if (model && model.nested) return model.outerClass + "+" + model.className;
+    return model.className;
+  }
+
+  /* the IBrush ("brush") field name on a model, or null when none — used to decide
+     whether a shape template can bind Fill (G2). */
+  function brushFieldName(model) {
+    const f = (model && model.fields ? model.fields : []).find((x) => x.type === "IBrush");
+    return f ? f.name : null;
   }
 
   /* attributes for one node: non-default catalog props (in catalog order),
@@ -558,6 +590,10 @@
         entry.vmType = "selectedItem";
         entry.itemType = model ? model.className : "string";
       }
+      if (vmType === "selectedItems") {
+        entry.vmType = "selectedItems";
+        entry.itemType = model ? model.className : "string";
+      }
       if (vmType === "collection") {
         entry.elementType = model ? model.className : "string";
         if (model) entry.model = model;
@@ -593,35 +629,71 @@
     return ind + '<TextBlock Text="{Binding ' + xmlEsc(field.name) + '}"/>';
   }
 
+  /* G2: a single-shape item template. The shape binds Width/Height to the model and
+     Fill to the brush field when the model has one, else a neutral default fill. */
+  function shapeTemplateAxaml(model, depth) {
+    const ind = indentOf(depth);
+    const brush = brushFieldName(model);
+    const fill = brush
+      ? 'Fill="{Binding ' + xmlEsc(brush) + '}"'
+      : 'Fill="SteelBlue"';
+    return ind + "<" + model.templateShape + ' Width="{Binding Width}" Height="{Binding Height}" '
+      + fill + "/>";
+  }
+
   function itemTemplateAxaml(hostType, model, depth) {
     const ind = indentOf(depth);
     const ind1 = indentOf(depth + 1);
     const ind2 = indentOf(depth + 2);
     const lines = [];
     lines.push(ind + "<" + hostType + ".ItemTemplate>");
-    lines.push(ind1 + '<DataTemplate x:DataType="vm:' + model.className + '">');
-    lines.push(ind2 + '<StackPanel Orientation="Horizontal" Spacing="8">');
-    model.fields.forEach((f) => { lines.push(fieldRowAxaml(f, depth + 3)); });
-    lines.push(ind2 + "</StackPanel>");
+    lines.push(ind1 + '<DataTemplate x:DataType="vm:' + dataTypeName(model) + '">');
+    if (model.templateShape) {
+      /* G2: render each item as one Ellipse/Rectangle instead of the debug list */
+      lines.push(shapeTemplateAxaml(model, depth + 2));
+    } else {
+      lines.push(ind2 + '<StackPanel Orientation="Horizontal" Spacing="8">');
+      model.fields.forEach((f) => { lines.push(fieldRowAxaml(f, depth + 3)); });
+      lines.push(ind2 + "</StackPanel>");
+    }
     lines.push(ind1 + "</DataTemplate>");
     lines.push(ind + "</" + hostType + ".ItemTemplate>");
     return lines.join("\n");
   }
 
+  /* read an explicit Width/Height off an ItemsControl node into canvas bounds (G8).
+     Returns null components when the prop is unset/non-positive so callers fall back
+     to today's defaults (400 x 300) byte-for-byte. */
+  function canvasBoundsOf(node) {
+    const props = (node && node.props) || {};
+    const w = Number(props.Width), h = Number(props.Height);
+    return {
+      width: (isFinite(w) && w > 0) ? Math.round(w) : null,
+      height: (isFinite(h) && h > 0) ? Math.round(h) : null,
+    };
+  }
+
   /* the Summer-2025 free-position idiom for an ItemsControl: a Canvas items panel
-     plus a ContentPresenter style binding Canvas.Left/Top to the model's X/Y */
-  function canvasItemsAxaml(model, depth) {
+     plus a ContentPresenter style binding Canvas.Left/Top to the model's X/Y.
+     When the host carries an explicit Width/Height (G8) the inner panel Canvas is
+     sized to match so positions and clamps agree; unset stays a bare <Canvas/>. */
+  function canvasItemsAxaml(model, depth, bounds) {
     const ind = indentOf(depth);
     const ind1 = indentOf(depth + 1);
     const ind2 = indentOf(depth + 2);
+    const b = bounds || {};
+    const sizeAttrs = [];
+    if (b.width != null) sizeAttrs.push('Width="' + b.width + '"');
+    if (b.height != null) sizeAttrs.push('Height="' + b.height + '"');
+    const canvasTag = sizeAttrs.length ? "<Canvas " + sizeAttrs.join(" ") + "/>" : "<Canvas/>";
     const lines = [];
     lines.push(ind + "<ItemsControl.ItemsPanel>");
     lines.push(ind1 + "<ItemsPanelTemplate>");
-    lines.push(ind2 + "<Canvas/>");
+    lines.push(ind2 + canvasTag);
     lines.push(ind1 + "</ItemsPanelTemplate>");
     lines.push(ind + "</ItemsControl.ItemsPanel>");
     lines.push(ind + "<ItemsControl.Styles>");
-    lines.push(ind1 + '<Style Selector="ContentPresenter" x:DataType="vm:' + model.className + '">');
+    lines.push(ind1 + '<Style Selector="ContentPresenter" x:DataType="vm:' + dataTypeName(model) + '">');
     lines.push(ind2 + '<Setter Property="Canvas.Left" Value="{Binding X}"/>');
     lines.push(ind2 + '<Setter Property="Canvas.Top" Value="{Binding Y}"/>');
     lines.push(ind1 + "</Style>");
@@ -643,7 +715,7 @@
     if (def.itemsHost && model) {
       const inner = [];
       if (node.type === "ItemsControl" && model.canvasItems) {
-        inner.push(canvasItemsAxaml(model, depth + 1));
+        inner.push(canvasItemsAxaml(model, depth + 1, canvasBoundsOf(node)));
       }
       inner.push(itemTemplateAxaml(node.type, model, depth + 1));
       return openTag(node, attrs, depth, false) + "\n"
@@ -660,17 +732,27 @@
       + indentOf(depth) + "</" + node.type + ">";
   }
 
+  /* G8: the root namespace that fills xmlns:vm / x:Class / `namespace ...`. Defaults
+     to the literal "ExamApp" so existing output is byte-identical AND the projzip
+     namespace-rewrite path (which replaces \bExamApp\b) keeps working untouched. */
+  function projectNamespaceOf(tree) {
+    const ns = tree && tree.projectNamespace;
+    const s = (ns == null ? "" : String(ns)).trim();
+    return s || "ExamApp";
+  }
+
   function generate(tree) {
     const bindings = [];                       // collected {name, vmType, ...}
+    const ns = projectNamespaceOf(tree);
     const body = emitNode(tree.children[0], 2, bindings);
     const axaml = [
       '<Window xmlns="https://github.com/avaloniaui"',
       '        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"',
-      '        xmlns:vm="using:ExamApp.ViewModels"',
+      '        xmlns:vm="using:' + ns + '.ViewModels"',
       '        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"',
       '        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"',
       '        mc:Ignorable="d" d:DesignWidth="' + (tree.props.Width || 600) + '" d:DesignHeight="' + (tree.props.Height || 400) + '"',
-      '        x:Class="ExamApp.Views.MainWindow"',
+      '        x:Class="' + ns + '.Views.MainWindow"',
       '        x:DataType="vm:MainWindowViewModel"',
       '        Title="' + xmlEsc(tree.props.Title || "Exam App") + '"',
       '        Width="' + (tree.props.Width || 600) + '" Height="' + (tree.props.Height || 400) + '">',
@@ -687,7 +769,7 @@
     /* regenerate-from-service adds its interface + InMemory impl to the Models pane
        so the paste compiles standalone (usings merged at the top of the file) */
     if (models.length || vmRes.service) {
-      out.model = modelsPane(models, vmRes.service || null);
+      out.model = modelsPane(models, vmRes.service || null, ns);
     }
     return out;
   }
@@ -727,10 +809,12 @@
   /* split one of our generated C# files into { usings:[..], body:"..." }.
      usings keep their full "using X;" text; body is everything from the first
      line after the namespace declaration onward, with surrounding blank lines
-     trimmed so we can re-join cleanly. */
-  function splitCsFile(code) {
+     trimmed so we can re-join cleanly. nsMarker defaults to the ExamApp marker so
+     existing callers are unchanged; a custom projectNamespace passes its own. */
+  function splitCsFile(code, nsMarker) {
+    const marker = nsMarker || SUBMISSION_NS;
     const text = String(code == null ? "" : code);
-    const nsIdx = text.indexOf(SUBMISSION_NS);
+    const nsIdx = text.indexOf(marker);
     if (nsIdx === -1) {
       /* no namespace marker (should not happen for our output): treat the whole
          thing as body, harvest any using lines we can find at the top */
@@ -746,7 +830,7 @@
       return { usings: us, body: lines.slice(i).join("\n").replace(/^\n+|\n+$/g, "") };
     }
     const head = text.slice(0, nsIdx);
-    const after = text.slice(nsIdx + SUBMISSION_NS.length);
+    const after = text.slice(nsIdx + marker.length);
     const usings = head.split("\n")
       .map((l) => l.trim())
       .filter((l) => /^using\s+[^;]+;$/.test(l));
@@ -803,18 +887,21 @@
      the model + service classes below the ViewModel under one merged using set. */
   function submission(tree) {
     const gen = generate(tree);
-    const vmParts = splitCsFile(gen.viewModel);
+    /* the namespace marker tracks projectNamespace (G8); default stays ExamApp so
+       existing submissions are byte-identical. */
+    const nsMarker = "namespace " + projectNamespaceOf(tree) + ".ViewModels;";
+    const vmParts = splitCsFile(gen.viewModel, nsMarker);
     const usingLists = [vmParts.usings];
     const bodies = [vmParts.body];
     if (gen.model) {
-      const mParts = splitCsFile(gen.model);
+      const mParts = splitCsFile(gen.model, nsMarker);
       usingLists.push(mParts.usings);
       if (mParts.body) bodies.push(mParts.body);
     }
     const merged = mergeUsings(usingLists);
     const parts = [];
     if (merged.length) parts.push(merged.join("\n"));
-    parts.push(SUBMISSION_NS);
+    parts.push(nsMarker);
     parts.push(bodies.filter((b) => b && b.trim() !== "").join("\n\n"));
     const viewModel = parts.join("\n\n") + "\n";
     return {
@@ -847,8 +934,10 @@
   }
 
   /* Models/Item.cs : usings + namespace + model classes (+ optional service classes).
-     All `using` directives are merged to the top so the file always compiles. */
-  function modelsPane(models, svc) {
+     All `using` directives are merged to the top so the file always compiles.
+     ns defaults to "ExamApp" (G8) so existing output and the projzip rewrite hold. */
+  function modelsPane(models, svc, ns) {
+    const root = (ns == null ? "" : String(ns)).trim() || "ExamApp";
     const needsBrush = models.some((m) => m.fields.some((f) => f.type === "IBrush"));
     const usings = [];
     if (svc) usings.push("using System.Collections.Generic;");
@@ -856,7 +945,7 @@
     if (models.length) usings.push("using CommunityToolkit.Mvvm.ComponentModel;");
     const parts = [];
     if (usings.length) parts.push(usings.join("\n"));
-    parts.push("namespace ExamApp.ViewModels;");
+    parts.push("namespace " + root + ".ViewModels;");
     if (models.length) parts.push(modelClassBodies(models));
     if (svc) parts.push(serviceClassBodies(svc));
     return parts.join("\n\n") + "\n";
@@ -918,6 +1007,7 @@
     const observables = list.filter((b) => propTypes[b.vmType]);
     const collections = list.filter((b) => b.vmType === "collection");
     const selected = list.filter((b) => b.vmType === "selectedItem");
+    const selectedMany = list.filter((b) => b.vmType === "selectedItems");
     const commands = list.filter((b) => b.vmType === "command");
 
     /* recipe context: resolve the (single) primary collection + selected item the
@@ -974,7 +1064,7 @@
     /* ---- usings ---- */
     const lines = [];
     if (needRandom) lines.push("using System;");
-    if (collections.length) lines.push("using System.Collections.ObjectModel;");
+    if (collections.length || selectedMany.length) lines.push("using System.Collections.ObjectModel;");
     if (timer && timer.mechanism === "task") {
       lines.push("using System.Threading;");
       lines.push("using System.Threading.Tasks;");
@@ -984,7 +1074,7 @@
     lines.push("using CommunityToolkit.Mvvm.ComponentModel;");
     if (commands.length) lines.push("using CommunityToolkit.Mvvm.Input;");
     lines.push("");
-    lines.push("namespace ExamApp.ViewModels;");
+    lines.push("namespace " + projectNamespaceOf(tree) + ".ViewModels;");
     lines.push("");
     lines.push("public partial class MainWindowViewModel : ObservableObject");
     lines.push("{");
@@ -994,8 +1084,14 @@
     /* ---- helper fields (Random, palette, samples, canvas bounds, timer) ---- */
     const helperFieldLines = [];
     if (needCanvasBounds) {
-      helperFieldLines.push("    private const double CanvasWidth = 400;");
-      helperFieldLines.push("    private const double CanvasHeight = 300;");
+      /* G8: when the host ItemsControl carries an explicit Width/Height, the clamp
+         constants match the inner Canvas so spawned items stay in view. Unset keeps
+         today's 400 x 300 defaults byte-for-byte. */
+      const cb = (collModel && collModel.canvasBounds) || {};
+      const cw = cb.width != null ? cb.width : 400;
+      const ch = cb.height != null ? cb.height : 300;
+      helperFieldLines.push("    private const double CanvasWidth = " + cw + ";");
+      helperFieldLines.push("    private const double CanvasHeight = " + ch + ";");
     }
     if (needRandom) helperFieldLines.push("    private readonly Random _random = new();");
     if (needPalette) {
@@ -1045,6 +1141,16 @@
       blocks.push("    // use this to drive multi-select highlighting (ReExam P2.3)\n"
         + "    partial void On" + b.name + "Changed(" + bare + "? value)\n    {\n"
         + "        // react to the new selection here\n    }");
+    });
+
+    /* ---- SelectedItems: a VM-side ObservableCollection the multi-select binds to
+       (G6). ListBox.SelectedItems is IList; an ObservableCollection<T> satisfies it
+       and lets the VM read/sync the selection without code-behind. */
+    selectedMany.forEach((b) => {
+      const el = (b.itemType && b.itemType !== "string") ? b.itemType : "string";
+      blocks.push("    // multi-selection synced from the ListBox (bind SelectedItems=\"{Binding "
+        + b.name + "}\")\n"
+        + "    public ObservableCollection<" + el + "> " + b.name + " { get; } = new();");
     });
 
     /* ---- timer field ---- */

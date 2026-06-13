@@ -204,6 +204,28 @@ test("P1 play mentions the June rubric mode and the Copy as Problem_1_Submission
   includes(html, "Copy as Problem_1_Submission.txt", "P1 play names the submission copy button");
 });
 
+/* ============ spec 19: sim-gap capabilities threaded into the P3 + P4 plays ============
+   The integration agent surfaces the spec-19 fixes lightly in the guide prose so a
+   reader knows the tools now do these things: the P4 play names the Query Lab null/
+   type-aware filters (== null, bare int nested-Any, compound AND, exclude-null
+   average), and the P3 self-check play notes the headless test clicks the real
+   control (FindControl<Button>) instead of a bare command call. Pin both so the
+   prose cannot drift back. */
+test("P4 play names the spec-19 null/type-aware Query Lab filters", () => {
+  const html = GUIDE.render();
+  includes(html, "== null", "P4 play names the is-empty/missing == null emit");
+  includes(html, "nested-Any", "P4 play names the int nested-Any case");
+  includes(html, "compound AND", "P4 play names the compound AND combinator");
+  includes(html, "exclude nulls", "P4 play names the above-average exclude-null option");
+});
+
+test("P3 self-check play notes the headless test clicks the real control", () => {
+  const html = GUIDE.render();
+  // the guide escapes < and >, so FindControl<Button> renders as FindControl&lt;Button&gt;
+  includes(html, "FindControl&lt;Button&gt;", "P3 play names FindControl<Button> (escaped in HTML)");
+  includes(html, "clicks the real control", "P3 play frames the test as clicking the real control");
+});
+
 /* ============ Node-loadable + render is idempotent (no throw on repeat) ============ */
 test("render() is pure and repeatable (no document access at render time)", () => {
   const a = GUIDE.render();

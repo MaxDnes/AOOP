@@ -44,6 +44,61 @@ test("DSG exposes the new upgrade handlers", () => {
     ok(typeof global.DSG[fn] === "function", "missing DSG." + fn);
   });
 });
+/* spec 19: the new gap-fix handlers (templateShape / nested / projectNamespace) */
+test("DSG exposes the spec-19 gap-fix handlers", () => {
+  ["setTemplateShape", "setNested", "setProjectNamespace"].forEach((fn) => {
+    ok(typeof global.DSG[fn] === "function", "missing DSG." + fn);
+  });
+});
+test("setProjectNamespace persists on the tree and stamps into generated code", () => {
+  const C = global.DESIGNER_CORE;
+  global.DSG.newDesign();                       // fresh Window selected
+  global.DSG.setProjectNamespace("MealPlanner");
+  /* read the live tree back through render -> the generated code in the preview */
+  const tree = JSON.parse(global.localStorage.getItem("aop-designer-current")).tree;
+  C.syncIdSeq(tree);
+  eq(tree.projectNamespace, "MealPlanner", "namespace stored on the tree");
+  includes(C.generate(tree).axaml, 'x:Class="MealPlanner.Views.MainWindow"');
+  /* blank / ExamApp clears it back to the default (projzip-rewrite path) */
+  global.DSG.setProjectNamespace("ExamApp");
+  const tree2 = JSON.parse(global.localStorage.getItem("aop-designer-current")).tree;
+  ok(tree2.projectNamespace == null, "ExamApp resets to the unset default");
+});
+test("typed items inspector offers the Item shape + Nested-in-VM + SelectedItems controls", () => {
+  const C = global.DESIGNER_CORE;
+  /* stage a tree whose selected node is a typed ListBox so render()'s initState()
+     restores it as the selection and the inspector renders the items panel. */
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const lb = C.createNode("ListBox"); lb.bindings.ItemsSource = "Items";
+  lb.model = { mode: "typed", className: "Item", fields: [{ name: "Name", type: "string" }] };
+  C.addChild(tree, sp.id, lb);
+  global.localStorage.setItem("aop-designer-current",
+    JSON.stringify({ v: 1, tree: tree, selectedId: lb.id, slot: "" }));
+  const html = reloadDesignerFresh().render();
+  includes(html, "DSG.setTemplateShape");      // G2 item-shape dropdown
+  includes(html, "DSG.setNested");             // G6 nested-in-VM toggle
+  includes(html, "DSG.setBind('SelectedItems'");   // G6 SelectedItems bind row
+});
+test("root inspector offers the project Namespace field (G8)", () => {
+  const C = global.DESIGNER_CORE;
+  const tree = C.createNode("Window");
+  global.localStorage.setItem("aop-designer-current",
+    JSON.stringify({ v: 1, tree: tree, selectedId: tree.id, slot: "" }));
+  const html = reloadDesignerFresh().render();
+  includes(html, "DSG.setProjectNamespace");
+});
+test("templateShape model still previews without throwing (debug-list fallback in HTML)", () => {
+  const C = global.DESIGNER_CORE;
+  const tree = C.createNode("Window");
+  const cv = C.createNode("Canvas"); C.addChild(tree, tree.id, cv);
+  const ic = C.createNode("ItemsControl"); ic.bindings.ItemsSource = "Rects";
+  ic.model = { mode: "typed", className: "RectItem", canvasItems: true, templateShape: "Ellipse",
+    fields: [{ name: "Width", type: "double" }, { name: "Brush", type: "IBrush" }] };
+  C.addChild(tree, cv.id, ic);
+  const html = global.DESIGNER.previewHTML(tree);
+  ok(typeof html === "string" && html.indexOf("RectItem") !== -1, "preview renders the model");
+});
 test("preview HTML escapes user text", () => {
   const C = global.DESIGNER_CORE;
   const tree = C.createNode("Window");

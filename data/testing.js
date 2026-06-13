@@ -212,6 +212,40 @@ public class AvaloniaTests
         Assert.True(isEnabled);
     }
 }`, lang: "csharp", title: "Headless test (TestableCalculator solution)" },
+  { p: "When the rubric rewards FINDING and CLICKING the control (not calling the VM command), locate the real Button and the bound TextBlock by Name, assert both are non-null, click the button through its bound Command, then assert the TextBlock's text. This is the exact shape Test Lab now generates." },
+  { code: String.raw`using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Headless.XUnit;
+using Counter.ViewModels;
+using Counter.Views;
+using Xunit;
+
+public class HeadlessUiTests
+{
+    [AvaloniaFact]
+    public void ClickingButton_UpdatesBoundText()
+    {
+        var vm = new MainWindowViewModel();
+        var window = new MainWindow { DataContext = vm };
+        window.Show();                  // REQUIRED even though nothing renders
+
+        // find the REAL controls by Name (null if the AXAML Name="..." differs):
+        var button = window.FindControl<Button>("ClickButton");
+        var text = window.FindControl<TextBlock>("ResultText");
+        Assert.NotNull(button);
+        Assert.NotNull(text);
+
+        // click the button via its bound Command (a click — never await a VM
+        // command, an awaited looping command would block the headless host):
+        for (var i = 0; i < 100; i++)
+        {
+            button!.Command?.Execute(button.CommandParameter);
+        }
+
+        // assert the bound TextBlock reflects the new state:
+        Assert.Equal("100", text!.Text);
+    }
+}`, lang: "csharp", title: "Headless test that finds + clicks the real Button (Test Lab shape)" },
   { table: { head: ["Interaction API", "Simulates"], rows: [
     ["`window.Show()`", "opening the window (mandatory first step)"],
     ["`control.Focus()`", "focusing a control"],

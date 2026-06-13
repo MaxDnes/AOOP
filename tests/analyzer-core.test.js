@@ -927,3 +927,159 @@ test("june: assembleJuneRubric is exported directly and matches the mode dispatc
   const viaMode = A.assembleAnswer(sc.findings, { project: "DocumentManager", mode: "june", files: SUMMER, index: sc.index });
   eq(viaDirect, viaMode, "mode:'june' must route to assembleJuneRubric");
 });
+
+/* ======================================================================
+   SPEC 19 — sim-gap fixes (ANALYZER section).
+   G3: a cross-cutting downcast must populate LSP and OCP in full mode
+       (DIP stays primary, no mandatory RUBRIC principle left empty).
+   G12: the Strategy detector prefers the constructor-injected+invoked
+       interface over a capability/role marker, and hedges when uncertain.
+   ====================================================================== */
+
+/* a self-contained downcast fixture: IPaymentGateway injected into Service,
+   downcast to the concrete StripeGateway. DIP-primary, LSP+OCP secondary. */
+const G3_DOWNCAST = `
+namespace Pay
+{
+    public interface IPaymentGateway { void Charge(decimal amount); }
+    public class StripeGateway : IPaymentGateway { public void Charge(decimal amount) {} }
+    public class Service
+    {
+        private readonly IPaymentGateway _gateway;
+        public Service(IPaymentGateway gateway) { _gateway = gateway; }
+        public void Pay() { var stripe = _gateway as StripeGateway; stripe.Charge(10m); }
+    }
+}`;
+
+test("spec19 G3: the downcast finding carries a principles array, DIP first then LSP, OCP", () => {
+  const f = A.scan([{ name: "Pay.cs", text: G3_DOWNCAST }]).findings;
+  const dc = byRule(f, "downcast")[0];
+  ok(dc, "the downcast must fire");
+  ok(Array.isArray(dc.principles), "downcast must carry a principles array");
+  eq(dc.principles[0], "DIP", "DIP must be the primary (first) principle");
+  ok(dc.principles.indexOf("LSP") !== -1, "LSP must be a listed consequence");
+  ok(dc.principles.indexOf("OCP") !== -1, "OCP must be a listed consequence");
+  eq(dc.principle, "DIP", "the finding's own principle stays DIP");
+});
+
+test("spec19 G3: full-mode draft fills the LSP section AND the OCP section, DIP still primary", () => {
+  const f = A.scan([{ name: "Pay.cs", text: G3_DOWNCAST }]).findings;
+  const draft = A.assembleAnswer(f, { project: "Pay", mode: "full" });
+  const slice = (from, to) => draft.slice(draft.indexOf(from), to ? draft.indexOf(to) : draft.length);
+  /* the cross-referenced SOLID sections must appear (never dropped); DIP carries
+     the primary downcast, OCP/LSP the derived consequence */
+  ["(OCP)", "(LSP)", "(DIP)"].forEach((tag) =>
+    includes(draft, tag, "cross-referenced section " + tag + " must appear, never be dropped"));
+  const lsp = slice("(LSP)", "(DIP)");
+  const ocp = slice("(OCP)", "(LSP)");
+  const dip = slice("(DIP)", "=== Summary ===");
+  /* LSP section names the downcast as a cross-cutting consequence */
+  includes(lsp, "Cross-cutting consequence", "LSP must carry the cross-cutting consequence entry");
+  includes(lsp, "downcast", "LSP section must name the downcast");
+  includes(lsp, "StripeGateway", "LSP consequence must name the concrete type");
+  /* OCP section likewise */
+  includes(ocp, "Cross-cutting consequence", "OCP must carry the cross-cutting consequence entry");
+  includes(ocp, "downcast", "OCP section must name the downcast");
+  /* DIP keeps the downcast as its PRIMARY violation write-up */
+  includes(dip, "Violation — Downcast of an injected abstraction", "DIP keeps the downcast as the headline violation");
+  includes(dip, "Dependency Inversion", "DIP write-up leads with DIP");
+  /* the downcast must NOT headline the LSP section (it is a derived consequence) */
+  notIncludes(lsp, "Violation — Downcast of an injected abstraction",
+    "the downcast must not be the LSP section's headline violation");
+});
+
+test("spec19 G3: spec-15 payment calibration full-mode draft is unchanged (downcast not LSP headline)", () => {
+  /* re-run the exact spec-15 assertion to prove G3 did not regress it */
+  const f = payScan();
+  const draft = A.assembleAnswer(f, { project: "PaymentDemo", mode: "full" });
+  const lspStart = draft.indexOf("(LSP)");
+  const ispStart = draft.indexOf("(ISP)");
+  const lspSection = draft.slice(lspStart, ispStart);
+  notIncludes(lspSection, "Downcast of an injected abstraction",
+    "the downcast must not headline the LSP section (spec-15 calibration preserved)");
+  /* but the LSP section is now non-empty and names the downcast as a consequence */
+  includes(lspSection, "Cross-cutting consequence", "LSP gains a cross-cutting consequence entry");
+  includes(lspSection, "downcast at PaymentDemo.cs", "LSP consequence cites the downcast location");
+});
+
+test("spec19 G3: violations and implementations modes are NOT given cross-ref entries (full only)", () => {
+  const f = A.scan([{ name: "Pay.cs", text: G3_DOWNCAST }]).findings;
+  const viol = A.assembleAnswer(A.filterByMode(f, "violations"), { project: "Pay", mode: "violations" });
+  const impl = A.assembleAnswer(A.filterByMode(f, "implementations"), { project: "Pay", mode: "implementations" });
+  notIncludes(viol, "Cross-cutting consequence", "violations mode keeps its original shape");
+  notIncludes(impl, "Cross-cutting consequence", "implementations mode keeps its original shape");
+});
+
+/* G12: a fixture with BOTH a capability/role marker (IAquatic, 3 unrelated
+   implementors, pure-capability member) and a real injected+invoked strategy
+   (ITankAssignmentStrategy). The Strategy presence must name the injected one. */
+const G12_FIXTURE = `
+namespace Zoo
+{
+    public interface IAquatic { bool CanSwim { get; } }
+    public interface ITankAssignmentStrategy { Tank Assign(Animal a); }
+    public class Shark : IAquatic { public bool CanSwim => true; }
+    public class Whale : IAquatic { public bool CanSwim => true; }
+    public class Octopus : IAquatic { public bool CanSwim => true; }
+    public class DepthStrategy : ITankAssignmentStrategy { public Tank Assign(Animal a) => new Tank(); }
+    public class TemperatureStrategy : ITankAssignmentStrategy { public Tank Assign(Animal a) => new Tank(); }
+    public class Aquarium
+    {
+        private readonly ITankAssignmentStrategy _strategy;
+        public Aquarium(ITankAssignmentStrategy strategy) { _strategy = strategy; }
+        public Tank Place(Animal a) => _strategy.Assign(a);
+    }
+}`;
+
+function strategyPresence(findings) {
+  return findings.filter((f) => f.kind === "presence" && f.pattern === "Strategy");
+}
+
+test("spec19 G12: Strategy presence names the injected+invoked interface, not the capability marker", () => {
+  const f = A.scan([{ name: "Zoo.cs", text: G12_FIXTURE }]).findings;
+  const strat = strategyPresence(f);
+  ok(strat.length === 1, "exactly one Strategy presence expected, got " + strat.length);
+  includes(strat[0].message, "ITankAssignmentStrategy",
+    "the injected, invoked strategy must be chosen for the 1.5 pattern");
+  notIncludes(strat[0].message, "IAquatic",
+    "the capability/role marker must NOT be chosen as the strategy");
+  /* a confident pick keeps the original 'Strategy pattern' wording */
+  includes(strat[0].title, "Open/Closed via the Strategy pattern", "an injected strategy reads confidently");
+});
+
+test("spec19 G12: when the ONLY multi-impl interface is a capability marker, the finding hedges", () => {
+  const markerOnly = `
+namespace Z
+{
+    public interface IAquatic { bool CanSwim { get; } }
+    public class Shark : IAquatic { public bool CanSwim => true; }
+    public class Whale : IAquatic { public bool CanSwim => true; }
+    public class Octopus : IAquatic { public bool CanSwim => true; }
+}`;
+  const f = A.scan([{ name: "Z.cs", text: markerOnly }]).findings;
+  const strat = strategyPresence(f);
+  ok(strat.length === 1, "the marker still surfaces, but as a hedged candidate");
+  includes(strat[0].title, "candidate Strategy", "a marker-only pick must hedge, not assert");
+  includes(strat[0].message, "candidate strategy", "the hedge must reach the message");
+});
+
+test("spec19 G12: reexam IDietaryRule and summer IProcessable strategy picks are unchanged (calibration)", () => {
+  const re = A.scan(loadFixtures("reexam2025")).findings;
+  const su = A.scan(loadFixtures("summer2025")).findings;
+  const reStrat = strategyPresence(re)[0];
+  const suStrat = strategyPresence(su)[0];
+  ok(reStrat && /IDietaryRule/.test(reStrat.message), "reexam still picks IDietaryRule");
+  includes(reStrat.title, "Open/Closed via the Strategy pattern", "reexam strategy stays confident");
+  ok(suStrat && /IProcessable/.test(suStrat.message), "summer still picks IProcessable");
+  includes(suStrat.title, "Open/Closed via the Strategy pattern", "summer strategy stays confident");
+  /* byte-for-byte: the calibrated confident message wording is preserved */
+  includes(reStrat.message, "IDietaryRule has 2 implementations (VegetarianRule, NutAllergyRule)", "reexam message unchanged");
+  includes(suStrat.message, "IProcessable has 2 implementations (Invoice, Report)", "summer message unchanged");
+});
+
+test("spec19 G12: june 1.5 pattern still resolves on the summer fixture (calibration preserved)", () => {
+  const sc = A.scan(SUMMER);
+  const draft = A.assembleAnswer(sc.findings, { project: "DocumentManager", mode: "june", files: SUMMER, index: sc.index });
+  const s15 = draft.slice(draft.indexOf("1.5 Design"));
+  ok(/Strategy|Facade/.test(s15), "1.5 must still name Strategy or Facade for the Summer fixture");
+});

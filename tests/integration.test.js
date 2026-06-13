@@ -386,3 +386,34 @@ test("README documents the professor's flat 6-file submission format", () => {
   ["Visual Designer", "Async Composer", "Query Lab"].forEach((tool) =>
     includes(runbook, tool, "runbook maps tool " + tool + " to its submission files"));
 });
+
+/* ================================================================
+   spec 19: the sim-gap fixes are surfaced lightly in README.txt. The
+   integration agent adds one sentence to each of the Query Lab, Visual
+   Designer, and Test Lab tool paragraphs describing the new native
+   capability the fix agents shipped, so a reader of README.txt learns the
+   tool now does it. Pin those sentences so the prose cannot drift back.
+   ================================================================ */
+test("README.txt surfaces the spec-19 Query Lab null/type-aware filters", () => {
+  const readme = fs.readFileSync(path.join(root, "README.txt"), "utf8");
+  includes(readme, "x.Field == null", "README names the is-empty/missing == null emit");
+  includes(readme, "t.Year == 2245", "README names the bare int nested-Any literal");
+  includes(readme, "compound AND", "README names the compound AND combinator");
+  includes(readme, "above-average can exclude nulls", "README names the exclude-null average");
+});
+
+test("README.txt surfaces the spec-19 Designer item shapes + multi-select", () => {
+  const readme = fs.readFileSync(path.join(root, "README.txt"), "utf8");
+  includes(readme, "Ellipse or Rectangle template", "README names the item shape template");
+  includes(readme, "SelectedItems for multi-select", "README names SelectedItems multi-select");
+  includes(readme, "vm:Outer+Inner", "README names the nested-model qualified DataType");
+});
+
+test("README.txt surfaces the spec-19 Test Lab real-control headless test", () => {
+  const readme = fs.readFileSync(path.join(root, "README.txt"), "utf8");
+  includes(readme, "FindControl<Button>", "README names FindControl<Button>");
+  includes(readme, "FindControl<TextBlock>", "README names FindControl<TextBlock>");
+  // it explicitly contrasts with the old bare command call
+  includes(readme, "no more calling vm.Command.Execute directly",
+    "README contrasts with the old bare command call");
+});

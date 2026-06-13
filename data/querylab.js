@@ -18,13 +18,13 @@ const STORE_VERSION = 1;   /* version-stamped payloads ({v:1, ...}) with gracefu
    build only the relevant dropdowns/inputs. Kept in the UI layer; the core
    owns the actual code generation. */
 const SHAPE_UI = [
-  { key: "filter-equals",          icon: "=",  label: "filter · equals",            needs: ["field", "value", "ci"] },
+  { key: "filter-equals",          icon: "=",  label: "filter · equals",            needs: ["field", "eqMatch", "value", "ci"] },
   { key: "filter-contains",        icon: "∋",  label: "filter · contains",          needs: ["field", "value", "ci"] },
   { key: "filter-empty-collection",icon: "∅",  label: "filter · empty collection",  needs: ["collectionField"] },
-  { key: "filter-nested-any",      icon: "⊆",  label: "filter · nested Any",        needs: ["collectionField", "subField", "match", "value"] },
-  { key: "sort-by",                icon: "↕",  label: "sort by",                    needs: ["field", "byCount", "direction", "thenBy"] },
+  { key: "filter-nested-any",      icon: "⊆",  label: "filter · nested Any",        needs: ["collectionField", "subField", "match", "value", "andWhere"] },
+  { key: "sort-by",                icon: "↕",  label: "sort by",                    needs: ["field", "byCount", "nullValue", "direction", "thenBy"] },
   { key: "group-aggregate",        icon: "Σ",  label: "group + aggregate",          needs: ["field", "aggregate", "subField", "subCount"] },
-  { key: "above-average",          icon: "x̄",  label: "above average",              needs: ["field", "byCount"] },
+  { key: "above-average",          icon: "x̄",  label: "above average",              needs: ["field", "byCount", "excludeNull"] },
   { key: "top-n",                  icon: "▲",  label: "top N",                      needs: ["field", "byCount", "direction", "n"] },
   { key: "select-fields",          icon: "{}", label: "select fields",              needs: ["multiField"] },
   { key: "binary-search",          icon: "🔎", label: "binary search",              needs: ["field", "value"] },
@@ -44,6 +44,13 @@ const MATCH_MODES = [
   { key: "equals", label: "== value" },
   { key: "null",   label: "== null" },
   { key: "year",   label: "year-of-date == N" },
+];
+/* filter-equals match modes: a plain value compare, or a null/missing test that
+   emits `field == null` (the only correct "is empty" check; a CSV empty cell
+   deserializes to null, so `== ""` is wrong). */
+const EQ_MATCH_MODES = [
+  { key: "equals", label: "== value" },
+  { key: "null",   label: "== null (empty/missing)" },
 ];
 const AGGREGATES = ["Count", "Average", "Max", "Min"];
 
@@ -131,6 +138,9 @@ function newRow(shape) {
     collection: "", subField: "", match: "equals",
     byCount: false, direction: "desc", thenBy: "", thenDirection: "asc",
     aggregate: "Count", subCount: false,
+    nullValue: "",            /* sort-by: optional `?? n` coalesce on a nullable key */
+    excludeNull: false,       /* above-average: average known values only */
+    andWhere: null,           /* filter-nested-any: optional root-level AND predicate { field, value } */
     n: 5, fields: [],
     name: "q" + (state.rows.length + 1),
     label: "",
@@ -388,6 +398,15 @@ function rowHTML(row, i) {
   if (needs.indexOf("field") !== -1) {
     h += fieldSelect(row, "field", rootFields(), row.field);
   }
+  /* filter-equals match: == value | == null. In null mode the value box is
+     suppressed (the comparison is to the C# null literal, no value needed). */
+  if (needs.indexOf("eqMatch") !== -1) {
+    h += '<select class="ql-sel" title="compare to a value, or test for null/missing" onchange="QL.setRow(' + i + ', \'match\', this.value)">';
+    EQ_MATCH_MODES.forEach(function (m) {
+      h += '<option value="' + m.key + '"' + (m.key === row.match ? " selected" : "") + ">" + esc(m.label) + "</option>";
+    });
+    h += "</select>";
+  }
   if (needs.indexOf("collectionField") !== -1) {
     h += fieldSelect(row, "collection", collectionFields(), row.collection);
   }
@@ -437,8 +456,37 @@ function rowHTML(row, i) {
     });
     h += "</span>";
   }
+  /* sort-by: optional `?? n` coalesce so a missing key sorts as n (e.g. Signups ?? 0) */
+  if (needs.indexOf("nullValue") !== -1 && !row.byCount) {
+    h += '<input class="ql-num ql-nullval" value="' + esc(row.nullValue || "") + '" placeholder="?? n" title="null-coalesce a missing sort key (e.g. 0); blank = leave nullable" onchange="QL.setRow(' + i + ', \'nullValue\', this.value)">';
+  }
+  /* above-average: average over known (non-null) values only, never count missing as 0 */
+  if (needs.indexOf("excludeNull") !== -1 && !row.byCount) {
+    h += checkbox(i, "excludeNull", row.excludeNull, "exclude nulls from avg");
+  }
   if (needs.indexOf("value") !== -1) {
-    h += '<input class="ql-val" value="' + esc(row.value) + '" placeholder="value" onchange="QL.setRow(' + i + ', \'value\', this.value)">';
+    /* hide the value box when a filter-equals row is in null mode (no value needed) */
+    const hideValue = row.shape === "filter-equals" && row.match === "null";
+    if (!hideValue) {
+      h += '<input class="ql-val" value="' + esc(row.value) + '" placeholder="value" onchange="QL.setRow(' + i + ', \'value\', this.value)">';
+    }
+  }
+  /* filter-nested-any: optional compound root-level AND (e.g. HomePort == "X" && Any(...)) */
+  if (needs.indexOf("andWhere") !== -1) {
+    const aw = (row.andWhere && typeof row.andWhere === "object") ? row.andWhere : {};
+    h += '<span class="ql-andwhere" title="optional: also require a root field equals a value (AND)">';
+    h += '<span class="ql-andwhere-lab">AND</span>';
+    h += '<select class="ql-sel" onchange="QL.setAndWhere(' + i + ', \'field\', this.value)">';
+    h += '<option value="">— none —</option>';
+    scalarFields().forEach(function (f) {
+      h += '<option value="' + esc(f.key) + '"' + (aw.field === f.key ? " selected" : "") + ">" + esc(f.property) + "</option>";
+    });
+    h += "</select>";
+    if (aw.field) {
+      h += '<span class="ql-andwhere-eq">==</span>';
+      h += '<input class="ql-val ql-andwhere-val" value="' + esc(aw.value || "") + '" placeholder="value" onchange="QL.setAndWhere(' + i + ', \'value\', this.value)">';
+    }
+    h += "</span>";
   }
   if (needs.indexOf("ci") !== -1) {
     h += checkbox(i, "caseInsensitive", row.caseInsensitive, "ignore case");
@@ -604,6 +652,23 @@ function setRow(i, prop, value) {
   regenerate();
 }
 
+/* set a sub-field of a row's compound AND predicate (filter-nested-any). Clears
+   the whole andWhere when the field is blanked so the query reverts to the plain
+   single-predicate Any. */
+function setAndWhere(i, prop, value) {
+  ensureState();
+  const row = state.rows[i];
+  if (!row) return;
+  if (prop === "field" && !value) { row.andWhere = null; }
+  else {
+    if (!row.andWhere || typeof row.andWhere !== "object") row.andWhere = { field: "", value: "" };
+    row.andWhere[prop] = value;
+  }
+  saveState();
+  paintRows();
+  regenerate();
+}
+
 function toggleField(i, key, on) {
   ensureState();
   const row = state.rows[i];
@@ -762,6 +827,7 @@ const QL = {
   removeQuery: removeQuery,
   move: move,
   setRow: setRow,
+  setAndWhere: setAndWhere,
   toggleField: toggleField,
   setOpt: setOpt,
   setOverride: setOverride,
