@@ -2,7 +2,7 @@
 const { test, eq, ok } = require("./t.js");
 global.window = global;
 const BANK = require("../data/quiz-bank.js");
-const CATS = ["OOP", "SOLID", "Avalonia & MVVM", "Testing", "Threading & Async", "LINQ & JSON", "Collections & Generics"];
+const CATS = ["OOP", "SOLID", "Avalonia & MVVM", "Testing", "Threading & Async", "LINQ & JSON", "Collections & Generics", "Design Process"];
 test("bank has at least 120 questions", () => ok(BANK.length >= 120, "got " + BANK.length));
 test("every category has at least 10 questions", () => {
   CATS.forEach((c) => ok(BANK.filter((q) => q.cat === c).length >= 10, c));

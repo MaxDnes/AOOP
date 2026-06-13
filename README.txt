@@ -5,7 +5,7 @@ How to run: double-click index.html. It opens in any browser, 100% offline -
 no server, no internet, no install, no AI. Everything is plain HTML/CSS/JS.
 
 
-THE NINE TOOLS  (top of the sidebar, "Exam Day" group; also on the home screen)
+THE TEN TOOLS  (top of the sidebar, "Exam Day" group; also on the home screen)
 -------------------------------------------------------------------------------
 
 EXAM GUIDE      The 4-hour plan, tool by tool. The orientation tab: it maps each
@@ -132,6 +132,21 @@ ASYNC COMPOSER  Configure the Problem 3 async worker - pattern (counter / progre
                 its AXAML in the scaffold's MainWindow and downloads a complete
                 runnable Avalonia project - unzip, dotnet build, dotnet run.
 
+MVVM CONVERTER  Paste a CodeBehind MainWindow.axaml + MainWindow.axaml.cs and it
+                produces the MVVM pair: a bound View and a ViewModel with
+                [ObservableProperty] / [RelayCommand]. It reads the named controls,
+                the event handlers (Click -> RelayCommand, ValueChanged /
+                SelectionChanged -> bound properties), the ItemsSource setup, and
+                the color-string -> Fill case (a derived IBrush updated in
+                On...Changed), and rewrites the view's x:Name + code-behind logic
+                as bindings. Whatever it cannot map automatically is kept as a
+                clearly marked // TODO instead of being dropped, and a cheat-sheet
+                lists every CodeBehind idiom next to its MVVM form. The "Download
+                submission files" button stamps the pair as Problem_2_ or
+                Problem_3_MainWindow.axaml + MainWindowViewModel.cs. A reverse
+                MVVM -> CodeBehind direction exists as a study aid (not for hand-in).
+                This is the tool for the "convert this project to MVVM" UI task.
+
 QUIZ            100+ hand-written questions across every exam topic. Modes: all
                 shuffled, weak-topics-first, a 10-question sprint, a weak sprint,
                 "drill my wrongs", and a full exam simulation. It tracks what you
@@ -141,7 +156,7 @@ QUIZ            100+ hand-written questions across every exam topic. Modes: all
 CONTENT  (the searchable curriculum, in the sidebar categories)
 ---------------------------------------------------------------
 
-145 topics across 17 categories, built from all 12 lectures, the course example
+149 topics across 18 categories, built from all 12 lectures, the course example
 projects, and both 2025 exams (June + August) with complete worked solutions.
 
 "3-Day Bootcamp" (top of the sidebar) is the guided study plan: per day a lesson
@@ -160,8 +175,10 @@ layout next to the exact AXAML that produces it - including ready page skeletons
 and a complete bundle window you can paste and adapt.
 
 Plus the reference categories: OOP Fundamentals, C# Language, SOLID, Design
-Patterns, Avalonia UI, MVVM & Binding, Collections & Generics, LINQ, Data &
-Files, Threading & Async, Unit Testing, Algorithms & Big-O, and the Past Exams.
+Patterns (now incl. Adapter), Avalonia UI, MVVM & Binding, Collections &
+Generics, LINQ, Data & Files, Threading & Async, Unit Testing, Algorithms &
+Big-O, Design Process (Lecture 7 GUI design: prototyping fidelity vs resolution,
+vertical/horizontal, sketch/wireframe/mockup), and the Past Exams.
 
 
 KEYBOARD

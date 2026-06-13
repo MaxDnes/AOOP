@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="asynclab.css">
 <link rel="stylesheet" href="guide.css">
 <link rel="stylesheet" href="quiz.css">
+<link rel="stylesheet" href="mvvmconv.css">
 </head>
 <body>
   <div class="frame">
@@ -68,6 +69,10 @@
   <script src="data/querylab.js"></script>
   <script src="data/asynclab-core.js"></script>
   <script src="data/asynclab.js"></script>
+  <!-- MVVM Converter: CodeBehind <-> MVVM. Core (logic) before UI; no PROJZIP dep
+       (submission is plain blobs). Both load before app.js like every tool. -->
+  <script src="data/mvvmconv-core.js"></script>
+  <script src="data/mvvmconv.js"></script>
   <!-- guide tool: orientation tab, UI-only (no core file), defines window.GUIDE -->
   <script src="data/guide.js"></script>
   <script src="data/bootcamp.js"></script>
@@ -85,6 +90,7 @@
   <script src="data/threading.js"></script>
   <script src="data/testing.js"></script>
   <script src="data/algorithms.js"></script>
+  <script src="data/process.js"></script>
   <script src="data/exams.js"></script>
   <script src="app.js"></script>
 </body>

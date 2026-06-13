@@ -24,6 +24,7 @@ const CATEGORIES = [
   { name: "Threading & Async",      color: "#f07178" },
   { name: "Unit Testing",           color: "#39bae6" },
   { name: "Algorithms & Big-O",     color: "#d2a6ff" },
+  { name: "Design Process",          color: "#f28fad" },
 ];
 
 /* ---------------- tools registry (single source of truth) ----------------
@@ -54,6 +55,9 @@ const TOOLS = [
   { id: "asynclab", label: "Async Composer",  sub: "configure a worker, get the ViewModel", icon: "↻", color: "#d2a6ff", module: "ASYNCLAB",
     homeTitle: "Configure a worker → ViewModel",
     homeDesc: "Configure the Problem 3 async worker — pattern, mechanism, interval, commands — and get the complete MainWindowViewModel, plus matching AXAML and a headless xUnit test if you want them." },
+  { id: "convert",  label: "MVVM Converter",  sub: "paste CodeBehind → MVVM pair",   icon: "⇄", color: "#f28fad", module: "MVVMCONV",
+    homeTitle: "Convert CodeBehind ↔ MVVM",
+    homeDesc: "Paste a CodeBehind MainWindow.axaml + .axaml.cs and get the bound View + ViewModel ([ObservableProperty]/[RelayCommand]), with a cheat-sheet and honest TODOs for anything it can't auto-map." },
   { id: "quiz",     label: "Quiz",            sub: "self-test, tracks weak spots",  icon: "?", color: "#d4bfff", module: "QUIZ",
     homeTitle: "Self-test, tracks weak spots",
     homeDesc: "100+ questions across all exam topics. Weak-topics mode resurfaces what you got wrong; exam-sim and drill modes too." },
@@ -813,6 +817,13 @@ const TOOL_TOPICS = (window.LAB_FILES || []).map((f) => ({
   tags: ["asynclab", "async", "counter", "timer", "viewmodel", "worker"],
   blocks: [],
   _txt: "async composer lab counter progress worker list mutator dispatchertimer task delay cancellationtokensource dispatcher uithread post viewmodel mainwindowviewmodel relaycommand observableproperty start stop reset resume toggle canexecute interval 100ms step ui thread problem 3 reexam counter axaml headless xunit test",
+}, {
+  id: "convert",
+  title: "MVVM Converter · CodeBehind ↔ MVVM",
+  cat: "Tools",
+  tags: ["convert", "mvvm", "codebehind", "code behind", "refactor", "viewmodel", "binding"],
+  blocks: [],
+  _txt: "mvvm converter convert codebehind code behind to mvvm refactor mainwindow axaml cs viewmodel observableproperty relaycommand binding command itemssource selecteditem brush parse fill slider combobox button textblock x:name event handler click valuechanged selectionchanged problem 2 problem 3 ui conversion circlecodebehind cheat sheet",
 }, {
   id: "quiz",
   title: "Quiz · self-test with weak-topic tracking",

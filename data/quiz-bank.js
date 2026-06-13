@@ -384,6 +384,30 @@ var BANK = [
   answer: "Move the needed capability onto the abstraction: add Recipe? GetRandomRecipe(IEnumerable<Recipe> from) to the IRecipeFinder interface (or a new focused interface), implement it in InMemoryRecipeRepository, and have MealPlanner call _recipeFinder.GetRandomRecipe(...) directly. Delete the as-cast and the \"does not support random selection\" error branch.",
   explain: "The violation is that only one concrete implementation works, so substitutes are not substitutable (LSP) and the high-level class secretly depends on a concretion again (DIP). A complete exam answer states both the mechanical change (interface member + direct call) and the principles it restores. This was THE planted violation of August 2025.",
 },
+{
+  id: "sol-18", cat: "SOLID", type: "mc",
+  q: "Which statement best describes how the Observer design pattern works?",
+  choices: [
+    "The Subject keeps a list of Observers and notifies them when its state changes",
+    "Each Observer keeps polling the Subject in a loop to check whether anything changed",
+    "The Subject and Observers share a database that they both read from",
+    "Observers modify the Subject's state directly whenever they need to",
+  ],
+  answer: 0,
+  explain: "A Subject holds a collection of registered Observers; when its state changes it PUSHES a notification to each one (observer.Update(...)) so they react — no polling, no shared store. Subscribers register and unregister via AddObserver/RemoveObserver. In C# this is exactly what events and INotifyPropertyChanged do: the binding system is the observer, your ViewModel the subject. The pattern decouples the subject from whoever is listening.",
+},
+{
+  id: "sol-19", cat: "SOLID", type: "mc",
+  q: "How does the Adapter design pattern typically let a client use a class with an incompatible interface?",
+  choices: [
+    "The adapter wraps the service and exposes an interface compatible with the client",
+    "The adapter wraps the client so that the service can drive it instead",
+    "The adapter acts as a standalone bridge that references neither class",
+    "The adapter merges the client and the service into a single combined object",
+  ],
+  answer: 0,
+  explain: "The adapter implements the interface the CLIENT already expects, holds a reference to the incompatible service (the adaptee), and translates each call into the adaptee's real API. The client talks to the adapter as if it were the expected type; the adapter forwards and reshapes the work. It must reference the adaptee — one that references neither class cannot adapt anything. Contrast Facade, which simplifies a subsystem rather than fixing incompatibility.",
+},
 
 /* ==================== Avalonia & MVVM ==================== */
 
@@ -1208,6 +1232,19 @@ var BANK = [
   answer: "Stack<T> — LIFO matches undo semantics: Push each action as it is performed, Pop to undo the most recent one first. A second stack holds undone actions for redo (Pop from undo, Push to redo, and back). Queues are the opposite: FIFO, suited to task scheduling and print jobs.",
   explain: "Undo/redo and navigation history are the slides' own Stack use cases — the newest action must come back first, which is exactly last-in-first-out. Mentioning the two-stack redo design shows you understand the data structure rather than just naming it.",
 },
+{
+  id: "col-13", cat: "Collections & Generics", type: "code-mc",
+  q: "What output will the following code produce?",
+  code: "Stack<int> s = new();\ns.Push(1);\ns.Push(2);\ns.Push(3);\n\nConsole.Write(s.Pop());\nConsole.Write(s.Pop());",
+  choices: [
+    "32",
+    "12",
+    "13",
+    "21",
+  ],
+  answer: 0,
+  explain: "A Stack is LIFO (last-in, first-out): Push adds to the top, Pop removes from the top. After pushing 1, 2, 3 the top is 3, so the first Pop returns 3 and the second returns 2 — written with no separator that prints \"32\". A Queue would be FIFO and print \"12\" (1 then 2). Peek would read the top without removing it. Stacks model undo/redo and call/navigation history.",
+},
 
 /* ==================== LINQ & JSON · attribute / serialization additions ==================== */
 
@@ -1248,6 +1285,19 @@ var BANK = [
   ],
   answer: 0,
   explain: "PropertyNameCaseInsensitive = true makes deserialization tolerant of case, so \"shipName\" binds to ShipName. PropertyNamingPolicy = CamelCase affects how names are WRITTEN (and matched) — set it when you must EMIT camelCase keys. WriteIndented only pretty-prints. Know which knob solves reading-someone-else's-JSON versus producing-required-output.",
+},
+{
+  id: "lnq-19", cat: "LINQ & JSON", type: "code-mc",
+  q: "What does this LINQ query return?",
+  code: "var result = products\n    .GroupBy(p => p.Category)\n    .Select(g => new\n    {\n        Category = g.Key,\n        AveragePrice = g.Where(p => p.Price < 100)\n                        .Select(p => p.Price)\n                        .DefaultIfEmpty(0)\n                        .Average()\n    })\n    .OrderByDescending(x => x.AveragePrice)\n    .First();",
+  choices: [
+    "The category with the highest average price among its products costing less than 100",
+    "The category containing the single highest individual product price under 100",
+    "The category whose under-100 products have the highest total (summed) price",
+    "The category with the highest average price across ALL its products",
+  ],
+  answer: 0,
+  explain: "Read it per group from the inside out: within each category keep only products priced < 100, take their prices, and Average them — DefaultIfEmpty(0) makes a category with no cheap product average 0 instead of throwing on an empty sequence. That yields one {Category, AveragePrice} per group; OrderByDescending then First pick the group with the biggest such average. It is an AVERAGE of the under-100 subset — not a sum, not a single max, not all products.",
 },
 
 /* ==================== OOP · records / extension / delegate additions ==================== */
@@ -1301,6 +1351,30 @@ var BANK = [
   ],
   answer: 0,
   explain: "The three hard requirements: a top-level static class, a static method, and 'this' on the first parameter. The method is then in scope wherever its namespace is imported. Extension methods cannot access private members of the extended type — they are ordinary static methods with nicer call syntax, used heavily for fluent, readable pipelines.",
+},
+{
+  id: "oop-20", cat: "OOP", type: "mc",
+  q: "A base class defines a method; several subclasses override it and each behaves differently when the method is called through a base-class reference at runtime. Which OO principle enables this?",
+  choices: [
+    "Polymorphism",
+    "Inheritance",
+    "Encapsulation",
+    "Abstraction",
+  ],
+  answer: 0,
+  explain: "Polymorphism (\"many forms\") lets one call site run different behavior depending on the object's runtime type. The C# enabler is a 'virtual' base method that each subclass 'override's, so 'Animal a = new Dog(); a.Speak();' runs Dog's version. Inheritance only supplies the hierarchy; polymorphism is what makes the overridden method win at runtime. Use 'override' — 'new' merely hides and resolves by the variable's static type instead.",
+},
+{
+  id: "oop-21", cat: "OOP", type: "mc",
+  q: "What is the key difference between a delegate and an event in C#?",
+  choices: [
+    "A delegate can be invoked by any code that can reach it; an event can only be raised by the class that declares it (outsiders may only += / -=)",
+    "They are identical; 'event' is purely syntactic sugar with no behavioral difference",
+    "Events support multiple subscribers while delegates support only one",
+    "Delegates can return values but events can only wrap void methods",
+  ],
+  answer: 0,
+  explain: "An event is a restricted wrapper around a delegate: outside code may only subscribe (+=) or unsubscribe (-=), while only the declaring type can actually fire it (OnClick?.Invoke(...)). A bare public delegate field, by contrast, lets any caller overwrite the list or invoke it directly — that broken encapsulation is exactly what 'event' prevents. Multicast and void-ness are NOT the distinction; both can multicast.",
 },
 
 /* ==================== Threading & Async · delegate / primitive additions ==================== */
@@ -1462,6 +1536,18 @@ var BANK = [
   explain: "[RelayCommand(CanExecute = nameof(CanDecrement))] generates DecrementCommand whose enabled state follows the guard. The button only re-checks when CanExecuteChanged fires, so [NotifyCanExecuteChangedFor(nameof(DecrementCommand))] on _count makes the generated setter raise it on every change. Mutate via Count-- (the property) so the setter runs; writing _count would skip the notification. This was the June Counter task.",
 },
 {
+  id: "av-23", cat: "Avalonia & MVVM", type: "mc",
+  q: "What is the core difference between MVC and MVVM?",
+  choices: [
+    "MVC uses a Controller to mediate between View and Model; MVVM uses a ViewModel the View talks to through data binding and commands",
+    "In MVVM the Model no longer contains any business logic",
+    "MVVM is just a newer name for MVC with an identical structure",
+    "MVC keeps state in the Controller while MVVM keeps state in the Model",
+  ],
+  answer: 0,
+  explain: "Both decouple presentation from data, but the middle layer differs. MVC's Controller actively pushes updates between View and Model. MVVM replaces it with a ViewModel the View BINDS to: the link is data bindings (View→VM), notifications via INotifyPropertyChanged (VM→View) and Commands — so the ViewModel never references controls and the View holds no logic. The Model still owns domain logic in both; state is not forced into the Model.",
+},
+{
   id: "tst-13", cat: "Testing", type: "short",
   q: "Write the minimal skeleton for a headless Avalonia UI test: the assembly attribute, the app builder, and one [AvaloniaFact] that shows the window.",
   answer: "// once per test assembly:\n[assembly: AvaloniaTestApplication(typeof(TestAppBuilder))]\n\npublic class TestAppBuilder\n{\n    public static AppBuilder BuildAvaloniaApp() =>\n        AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());\n}\n\npublic class MainWindowTests\n{\n    [AvaloniaFact]\n    public void Window_Opens_WithViewModel()\n    {\n        var window = new MainWindow { DataContext = new MainWindowViewModel() };\n        window.Show();   // required even though nothing renders\n        Assert.NotNull(window.FindControl<Button>(\"IncrementButton\"));\n    }\n}",
@@ -1472,6 +1558,129 @@ var BANK = [
   q: "Write the +1-every-100ms async counter loop that updates a bound Count safely and stops on cancellation (Task.Delay form).",
   answer: "private CancellationTokenSource? _cts;\n\nprivate async Task RunAsync()\n{\n    _cts = new CancellationTokenSource();\n    try\n    {\n        while (!_cts.Token.IsCancellationRequested)\n        {\n            await Task.Delay(100, _cts.Token);\n            // marshal the UI-bound write back to the UI thread:\n            Dispatcher.UIThread.Post(() => Count++);\n        }\n    }\n    catch (OperationCanceledException) { /* normal Stop — not an error */ }\n}\n\nprivate void Stop() => _cts?.Cancel();",
   explain: "Pass the token into Task.Delay so Stop() (via _cts.Cancel()) breaks the loop promptly; catch OperationCanceledException as the NORMAL shutdown, not a failure. Because the loop runs off the UI thread, marshal Count++ with Dispatcher.UIThread.Post. Simpler alternatives the re-exam accepts: a DispatcherTimer (Tick on the UI thread, no marshalling) or PeriodicTimer with WaitForNextTickAsync(token).",
+},
+
+/* ==================== Design Process (prototyping, iterative dev) ==================== */
+
+{
+  id: "proc-01", cat: "Design Process", type: "mc",
+  q: "What type of prototype focuses on a single, complete user flow (for example, purchasing one specific product) while leaving other functionality unimplemented or ignored?",
+  choices: [
+    "Vertical prototype",
+    "Horizontal prototype",
+    "Low-fidelity prototype",
+    "Wireframe",
+  ],
+  answer: 0,
+  explain: "A vertical prototype builds ONE item end-to-end — its sub-views, logic and data — and leaves the others unimplemented, so you prove a single complete journey works. A horizontal prototype is the opposite: a thin base view across many items, broad but shallow. Vertical vs horizontal is Lecture 7's RESOLUTION axis (how much functionality is built); fidelity — how polished it LOOKS — is a separate axis, so 'low-fidelity' and 'wireframe' are not the answer.",
+},
+{
+  id: "proc-02", cat: "Design Process", type: "mc",
+  q: "A prototype shows every screen and the full navigation of an app, but no button actually does anything yet. Which kind is it?",
+  choices: [
+    "Horizontal prototype",
+    "Vertical prototype",
+    "High-fidelity prototype",
+    "Evolutionary prototype",
+  ],
+  answer: 0,
+  explain: "Horizontal = wide and shallow: a single base view for each menu item, so people can react to scope and navigation, but little or no logic works underneath. A vertical prototype would instead build one item in full depth. Broad-vs-deep is Lecture 7's RESOLUTION axis (how much functionality is implemented); it is independent of fidelity, which is how close the prototype LOOKS to the finished app.",
+},
+{
+  id: "proc-03", cat: "Design Process", type: "mc",
+  q: "What best describes a low-fidelity prototype?",
+  choices: [
+    "A rough sketch or wireframe — boxes and labels, no real styling or data — made cheaply and early for fast feedback",
+    "A pixel-perfect, interactive build using real colors, fonts and data",
+    "The final product shipped to a small group of users",
+    "A prototype that gradually becomes the production system",
+  ],
+  answer: 0,
+  explain: "Low-fidelity prototypes (paper sketches, wireframes) are deliberately rough, so they are quick and cheap to make and easy to discard — and so reviewers critique layout and flow instead of mistaking them for a finished product. High-fidelity prototypes look and behave close to the real thing (real styling, realistic data, clickable), cost more, and come later for usability testing and sign-off.",
+},
+{
+  id: "proc-04", cat: "Design Process", type: "mc",
+  q: "When is a high-fidelity prototype most appropriate?",
+  choices: [
+    "Later, for usability testing and stakeholder sign-off, when you need something close to the real look and feel",
+    "At the very start, to brainstorm rough layout ideas as cheaply as possible",
+    "Only when you intend to throw the prototype away immediately",
+    "Whenever you want to avoid writing any UI code at all",
+  ],
+  answer: 0,
+  explain: "High-fidelity prototypes use real colors, typography and data and are often interactive, so they are expensive to produce — you invest in them once the direction is settled, to validate detailed usability and get confident sign-off. Early exploration is better served by cheap low-fidelity sketches and wireframes that invite honest critique and are painless to discard or redo.",
+},
+{
+  id: "proc-05", cat: "Design Process", type: "mc",
+  q: "What is the difference between a wireframe and a mockup?",
+  choices: [
+    "A wireframe is a low-fidelity structural blueprint (placement, hierarchy, no styling); a mockup is a higher-fidelity static visual of the finished look",
+    "A wireframe is interactive; a mockup is always made of paper",
+    "They are two words for exactly the same artifact",
+    "A mockup has no colors, while a wireframe is fully styled",
+  ],
+  answer: 0,
+  explain: "A wireframe answers 'what goes where' — boxes, labels and hierarchy with no final color or content. A mockup is a static but high-fidelity picture of the finished visual design (real colors, fonts, imagery) that you cannot click. Add interaction and you have a prototype. The progression from low to high fidelity is roughly wireframe, then mockup, then interactive prototype.",
+},
+{
+  id: "proc-06", cat: "Design Process", type: "mc",
+  q: "In Lecture 7's prototyping framework, what does the RESOLUTION of a prototype describe?",
+  choices: [
+    "How much of the final application's functionality is already implemented",
+    "How visually close the prototype is to the finished application",
+    "How many screens the prototype contains in total",
+    "Which UI framework the prototype is built with",
+  ],
+  answer: 0,
+  explain: "Lecture 7 separates two axes. RESOLUTION is how much of the final app's functionality is actually implemented; FIDELITY is how close it LOOKS to the finished product. Vertical and horizontal prototypes are the resolution differentiation — vertical builds one item deeply, horizontal spreads a thin base view across many items. Mixing up resolution (how much works) with fidelity (how it looks) is the classic trap.",
+},
+{
+  id: "proc-07", cat: "Design Process", type: "mc",
+  q: "What is the primary purpose of building a prototype?",
+  choices: [
+    "To explore ideas and validate requirements and UX with feedback BEFORE committing to the full build, reducing risk",
+    "To ship a finished, fully featured product to customers as fast as possible",
+    "To replace writing any specification or design documents",
+    "To permanently lock the design so it can no longer change",
+  ],
+  answer: 0,
+  explain: "Prototypes exist to learn cheaply: they surface misunderstandings in requirements and usability problems early, when changes are still cheap, rather than after the whole system is built. They are partial and provisional by design. That risk-reduction goal is why rough, low-fidelity prototypes are common early on — the point is feedback, not a deliverable.",
+},
+{
+  id: "proc-08", cat: "Design Process", type: "mc",
+  q: "A clickable mockup uses the real colors, fonts and layout of the finished app, but almost none of its buttons actually do anything. In Lecture 7's terms, how is it classified?",
+  choices: [
+    "High fidelity, low resolution",
+    "Low fidelity, high resolution",
+    "High fidelity, high resolution",
+    "Low fidelity, low resolution",
+  ],
+  answer: 0,
+  explain: "Fidelity is how close it LOOKS to the final app; resolution is how much functionality actually works. Real colors, fonts and layout make it high fidelity, but if the buttons do nothing the resolution is low. The opposite case is a rough paper prototype you operate by hand to fake a whole flow: low fidelity, higher resolution. A functional prototype scores high on both axes.",
+},
+{
+  id: "proc-09", cat: "Design Process", type: "mc",
+  q: "Lecture 7 lists several prototyping artifacts. Which is the LOWEST-fidelity one?",
+  choices: [
+    "A hand-drawn sketch of the screen",
+    "A high-fidelity mockup",
+    "A functional prototype",
+    "A pixel-accurate interactive demo",
+  ],
+  answer: 0,
+  explain: "Lecture 7's artifacts run low to high fidelity: sketches, wireframes and paper prototypes are the low-fidelity end (rough boxes and labels, no styling); mockups and functional prototypes are the high-fidelity end (real colors, fonts, data). A sketch is the cheapest, roughest, earliest form, used deliberately so reviewers suggest big changes before real effort is sunk in.",
+},
+{
+  id: "proc-10", cat: "Design Process", type: "mc",
+  q: "Why are paper or low-fidelity prototypes especially useful in the EARLY stages of design?",
+  choices: [
+    "They are cheap and fast to make and easy to change, so people critique the ideas freely instead of treating them as final",
+    "They are indistinguishable from the finished product, so they need no further work",
+    "They guarantee the design will never need to change again",
+    "They require the full tech stack and real data to be in place first",
+  ],
+  answer: 0,
+  explain: "Because a sketch costs minutes and obviously is not 'done', reviewers feel free to suggest big changes and you can redraw instantly — feedback is honest and iteration is painless. A polished high-fidelity prototype invites nitpicking about colors and can make stakeholders reluctant to request structural changes. Cheap-and-rough is exactly what early, high-uncertainty exploration wants.",
 },
 
 ];

@@ -200,8 +200,8 @@ var planner = new MealPlanner(repo, notifier);`, lang: "csharp", title: "Concret
 id: "dp-overview",
 title: "Design patterns: course catalog",
 cat: "Design Patterns",
-tags: ["design patterns", "catalog", "facade", "singleton", "strategy", "command", "observer", "di"],
-related: ["dp-singleton", "dp-facade", "dp-strategy", "dp-command", "dp-observer", "dp-dependency-injection"],
+tags: ["design patterns", "catalog", "facade", "singleton", "strategy", "command", "observer", "di", "adapter"],
+related: ["dp-singleton", "dp-facade", "dp-adapter", "dp-strategy", "dp-command", "dp-observer", "dp-dependency-injection"],
 blocks: [
   { p: "The Lecture 12 list names exactly these six. Where each one already exists in course/exam code:" },
   { table: { head: ["Pattern", "Intent (one line)", "Where you saw it"], rows: [
@@ -213,6 +213,7 @@ blocks: [
     ["Dependency Injection", "Push dependencies in from outside (constructor)", "Every exam project's Program.cs / App.axaml.cs"],
   ]}},
   { tip: "MVC / MVVM are architectural patterns built FROM these: MVVM = Observer (PropertyChanged) + Command (RelayCommand) + DI (composition root)." },
+  { p: "Beyond the core six, exams also probe the classic structural patterns by intent. The one to know cold is [[dp-adapter|Adapter]]: it wraps an existing/incompatible class and re-exposes it through the interface the client expects (compatibility), versus Facade which simplifies a subsystem behind one entry point." },
 ]},
 
 {
@@ -276,6 +277,48 @@ blocks: [
     }
 }`, lang: "csharp", title: "Course facade over the shapes subsystem (also note 'params double[]')" },
   { p: "DocumentWorkflowManager in the June exam is also a facade: callers say `RegisterAndProcessDocument(doc)` and the manager coordinates registration, validation, processing and logging internally. If asked to name ONE pattern in such code, Facade is defensible; explain what complexity it hides." },
+]},
+
+{
+id: "dp-adapter",
+title: "Adapter",
+cat: "Design Patterns",
+tags: ["adapter", "wrapper", "incompatible interface", "structural", "legacy", "third party"],
+related: ["dp-facade", "dp-strategy", "dp-overview"],
+blocks: [
+  { def: "Convert the interface of an existing class into the interface a client expects. The adapter WRAPS the incompatible service (the adaptee) and re-exposes its functionality through the interface the client already depends on, so two classes that could not talk before now work together.", term: "Adapter" },
+  { p: "Tell it apart from its neighbours: Facade simplifies a complex subsystem behind ONE easy entry point (you control the subsystem); Adapter makes an EXISTING, often unchangeable class (legacy code, a third-party SDK) satisfy an interface you already have. The intent is compatibility, not simplification." },
+  { code: String.raw`// The client only knows this interface:
+public interface IPaymentService
+{
+    void Pay(decimal amount);
+}
+
+// The adaptee: a third-party SDK with an incompatible shape you cannot edit.
+public class StripeSdk
+{
+    public void MakeCharge(int cents, string currency) { /* ... */ }
+}
+
+// The Adapter: implements the client interface, holds the adaptee,
+// and TRANSLATES each call from the expected shape to the real one.
+public class StripeAdapter : IPaymentService
+{
+    private readonly StripeSdk _stripe;          // the wrapped service
+    public StripeAdapter(StripeSdk stripe) => _stripe = stripe;
+
+    public void Pay(decimal amount)              // client's interface...
+        => _stripe.MakeCharge((int)(amount * 100), "USD");   // ...mapped onto the adaptee
+}
+
+// The client depends on IPaymentService and never sees Stripe:
+IPaymentService payment = new StripeAdapter(new StripeSdk());
+payment.Pay(19.99m);`, lang: "csharp", title: "Object adapter: wrap the service, expose the client's interface" },
+  { list: [
+    "**Recognize it**: a class that implements interface X, holds a field of an unrelated type Y, and whose methods mostly forward to Y after reshaping the arguments.",
+    "**Why**: integrate legacy or third-party code without rewriting it, and keep the client decoupled from the foreign API (swap the adaptee or the SDK without touching callers).",
+    "**Exam framing**: \"how does the Adapter typically let a client use a class with an incompatible interface?\" -> the adapter wraps the service and exposes an interface compatible with the client (NOT the other way round, and it always references the adaptee).",
+  ]},
 ]},
 
 {
