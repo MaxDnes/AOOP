@@ -1268,3 +1268,13 @@ test("a CheckBox (previously fixed) now carries bindable Width to dynamically si
   const w = (C.CATALOG.CheckBox.props || []).find(function (p) { return p.name === "Width"; });
   ok(w && w.bindable && w.vmType === "double", "CheckBox Width is bindable double");
 });
+
+/* which alignment axis is inert in a StackPanel (Avalonia: the stacking axis) */
+test("inertAlignmentAxis matches Avalonia stack-panel layout", () => {
+  eq(C.inertAlignmentAxis("StackPanel", "Vertical"), "VerticalAlignment");
+  eq(C.inertAlignmentAxis("StackPanel", undefined), "VerticalAlignment");
+  eq(C.inertAlignmentAxis("StackPanel", "Horizontal"), "HorizontalAlignment");
+  eq(C.inertAlignmentAxis("WrapPanel", undefined), "HorizontalAlignment");
+  eq(C.inertAlignmentAxis("Grid", "Vertical"), null);
+  eq(C.inertAlignmentAxis("Border"), null);
+});

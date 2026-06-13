@@ -18,6 +18,17 @@
       { name: "Height", kind: "number", bindable: true, vmType: "double" },
     ];
   }
+  /* Which alignment axis is INERT for a child of this parent. A StackPanel sizes
+     each child to its own extent along the stacking (main) axis, so the matching
+     alignment has no effect there — exactly as in Avalonia. Vertical stack ->
+     VerticalAlignment is inert; horizontal stack -> HorizontalAlignment is inert.
+     Returns null for containers (Grid, Border, Window…) that give space on both
+     axes, where both alignments work. */
+  function inertAlignmentAxis(parentType, orientation) {
+    if (parentType !== "StackPanel" && parentType !== "WrapPanel") return null;
+    var orient = orientation || (parentType === "WrapPanel" ? "Horizontal" : "Vertical");
+    return orient === "Horizontal" ? "HorizontalAlignment" : "VerticalAlignment";
+  }
 
   /* ---------------- catalog ---------------- */
   const CATALOG = {
@@ -1561,7 +1572,7 @@
   }
 
   /* ---------------- export ---------------- */
-  const CORE = { CATALOG, PALETTE_GROUPS, PLAIN, COLORS, createNode, findNode, findParent,
+  const CORE = { CATALOG, PALETTE_GROUPS, PLAIN, COLORS, inertAlignmentAxis, createNode, findNode, findParent,
                  canContain, addChild, removeNode, moveNode, walk, generate,
                  submission, foreignUsings,
                  syncIdSeq, cloneSubtree, placeAtCanvasPoint, serialize, deserialize,

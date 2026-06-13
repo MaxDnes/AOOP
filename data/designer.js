@@ -1115,6 +1115,22 @@
     }
     h += "</div>";
     (def.props || []).forEach(function (p) { h += propRow(node, p, def.defaultProps || {}); });
+    /* honesty hint: in a StackPanel the main-axis alignment is inert (Avalonia
+       sizes each child to its own extent there). Show it exactly when the user has
+       set that inert axis, and point them at the tool that DOES move it. */
+    if (!isRoot) {
+      const par0 = CORE.findParent(tree, node.id);
+      const inert = par0 && CORE.inertAlignmentAxis ? CORE.inertAlignmentAxis(par0.type, (par0.props || {}).Orientation) : null;
+      if (inert && node.props[inert] && node.props[inert] !== "Stretch") {
+        const horiz = inert === "HorizontalAlignment";
+        h += '<div class="dsg-insp-note">' + escH(inert) + " has no effect inside a "
+          + (horiz ? "horizontal" : "vertical") + " StackPanel — the panel gives each child its own "
+          + (horiz ? "width" : "height") + ", so there is no room to align within (this matches Avalonia). To move it "
+          + (horiz ? "horizontally" : "vertically") + ", set the " + (horiz ? "Left" : "Top")
+          + " Margin or drag the center move handle; " + (horiz ? "VerticalAlignment" : "HorizontalAlignment")
+          + " still aligns the cross axis.</div>";
+      }
+    }
     /* G8: root namespace stamped into xmlns:vm / x:Class / `namespace ...`. Blank =
        ExamApp (default; keeps the .zip export's namespace-rewrite path working). */
     if (isRoot) {
