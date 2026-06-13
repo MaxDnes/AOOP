@@ -27,7 +27,8 @@
   let undoStack = [];       // serialized {tree, selectedId} snapshots
   let redoStack = [];       // popped snapshots, for redo
   const UNDO_CAP = 100;
-  let moveState = null;     // active drag-to-move on the stage
+  let moveState = null;     // active drag-to-move on the stage (Canvas child)
+  let marginMoveState = null; // active center-handle drag that writes Margin
   let resizeState = null;   // active resize-handle drag
   /* reference-image overlay: session-only (data URLs are too big for localStorage
      slots). includeInExport gates whether Export JSON carries the data URL. */
@@ -659,9 +660,16 @@
     const onCanvas = parent && parent.type === "Canvas";
     let cls = "pv pv-" + node.type + (isSel ? " sel" : "");
     if (onCanvas) cls += " pv-oncanvas";
-    /* resize grips appear on the selected element when it can carry Width/Height */
+    /* resize grips appear on the selected element when it can carry Width/Height;
+       a center move handle (drag to set Margin) appears on any selected element */
     let grips = "";
-    if (isSel && canResize(node)) grips = gripsHTML();
+    if (isSel) {
+      if (canResize(node)) grips += gripsHTML();
+      grips += '<span class="dsg-move" data-grip="move" title="drag to move (sets Margin)">'
+        + '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">'
+        + '<path fill="currentColor" d="M8 0 L5.5 2.5 H7 V7 H2.5 V5.5 L0 8 L2.5 10.5 V9 H7 V13.5 H5.5 L8 16 '
+        + 'L10.5 13.5 H9 V9 H13.5 V10.5 L16 8 L13.5 5.5 V7 H9 V2.5 H10.5 Z"/></svg></span>';
+    }
     return '<div class="' + cls + '" data-id="' + escH(node.id) + '" draggable="true"'
       + (style ? ' style="' + escH(style) + '"' : "") + ">" + inner + grips + "</div>";
   }
@@ -1426,6 +1434,33 @@
     return true;
   }
 
+  /* center-handle move via Margin — works in StackPanel / Grid / etc. (any non-Canvas
+     parent): dragging changes the element's Left + Top margin so it slides around the
+     panel. Canvas children return false here and fall back to startMove (Canvas.Left/Top). */
+  function marginNums(str) {
+    return parseThickness(str).map(function (x) { const n = parseFloat(x); return isNaN(n) ? 0 : n; });
+  }
+  function startMarginMove(nodeId, e) {
+    const node = CORE.findNode(tree, nodeId);
+    if (!node) return false;
+    const parent = CORE.findParent(tree, nodeId);
+    if (parent && parent.type === "Canvas") return false;
+    const el = document.querySelector('#dsg-canvas .pv[data-id="' + cssEsc(nodeId) + '"]');
+    if (!el) return false;
+    const scale = canvasScale(document.getElementById("dsg-canvas"));
+    const m = marginNums(node.props.Margin);
+    pushUndo(); endCoalesce();
+    marginMoveState = {
+      nodeId: nodeId, el: el, scale: scale || 1,
+      startX: e.clientX, startY: e.clientY,
+      origL: m[0], origT: m[1], origR: m[2], origB: m[3],
+      moved: false,
+    };
+    selectedId = nodeId;
+    document.body.classList.add("dsg-grabbing");
+    return true;
+  }
+
   function startResize(nodeId, handle, e) {
     const node = CORE.findNode(tree, nodeId);
     if (!node) return false;
@@ -1465,6 +1500,19 @@
       moveState.el.style.left = left + "px";
       moveState.el.style.top = top + "px";
       showBadge("x:" + left + " y:" + top, e.clientX, e.clientY);
+      e.preventDefault();
+      return;
+    }
+    if (marginMoveState) {
+      const s = marginMoveState;
+      const dx = (e.clientX - s.startX) / s.scale;
+      const dy = (e.clientY - s.startY) / s.scale;
+      const L = snapInt(s.origL + dx, e.shiftKey);
+      const T = snapInt(s.origT + dy, e.shiftKey);
+      s.curL = L; s.curT = T;
+      s.moved = s.moved || Math.abs(dx) > 1 || Math.abs(dy) > 1;
+      s.el.style.margin = cssThickness(L + "," + T + "," + s.origR + "," + s.origB);
+      showBadge("margin  L " + L + " · T " + T, e.clientX, e.clientY);
       e.preventDefault();
       return;
     }
@@ -1508,6 +1556,18 @@
       if (wasMoved) refresh(); else { undoStack.pop(); refresh(); }
       return;
     }
+    if (marginMoveState) {
+      const s = marginMoveState;
+      const node = CORE.findNode(tree, s.nodeId);
+      if (node && s.curL != null) {
+        const composed = composeThickness([String(s.curL), String(s.curT), String(s.origR), String(s.origB)]);
+        if (composed === "") delete node.props.Margin; else node.props.Margin = composed;
+      }
+      const wasMoved = s.moved;
+      marginMoveState = null;
+      if (wasMoved) refresh(); else { undoStack.pop(); refresh(); }
+      return;
+    }
     if (resizeState) {
       const rs = resizeState;
       const node = CORE.findNode(tree, rs.nodeId);
@@ -1528,6 +1588,16 @@
   /* mousedown on the stage: grip → resize, Canvas child → move, else let dnd run */
   function onStageMouseDown(e) {
     if (e.button !== 0) return;
+    /* center move handle → drag via Margin (Canvas children fall back to Canvas.Left/Top) */
+    const mover = (e.target && e.target.closest) ? e.target.closest(".dsg-move") : null;
+    if (mover) {
+      const movePv = mover.closest(".pv");
+      const moveId = movePv && movePv.getAttribute("data-id");
+      if (moveId && (startMarginMove(moveId, e) || startMove(moveId, e))) {
+        e.preventDefault(); e.stopPropagation();
+      }
+      return;
+    }
     const grip = (e.target && e.target.closest) ? e.target.closest(".dsg-grip") : null;
     if (grip) {
       const pv = grip.closest(".pv");

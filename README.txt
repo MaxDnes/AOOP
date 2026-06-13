@@ -176,10 +176,17 @@ ERROR DECODER   The offline answer to "it went red, now what." A hand-written
                 search by code/keyword, or browse by category. No internet, no AI -
                 just the fix.
 
-QUIZ            100+ hand-written questions across every exam topic. Modes: all
-                shuffled, weak-topics-first, a 10-question sprint, a weak sprint,
-                "drill my wrongs", and a full exam simulation. It tracks what you
-                miss; the Export stats button saves your progress as JSON.
+QUIZ            160 hand-written questions across every exam topic, including a
+                dedicated "Exam Theory" category: 20 Problem-1-style multiple-choice
+                questions that show a code snippet and ask which OOP principle, which
+                SOLID principle (including the planted violations) or which design
+                pattern it demonstrates - the exact skill Problem 1 grades. Snippets
+                are drawn from real exam-style projects (rescue center, tool library).
+                Select only the Exam Theory category on the start screen to drill the
+                written-analysis theory on its own. Modes: all shuffled,
+                weak-topics-first, a 10-question sprint, a weak sprint, "drill my
+                wrongs", and a full exam simulation. It tracks what you miss; the
+                Export stats button saves your progress as JSON.
 
 
 CONTENT  (the searchable curriculum, in the sidebar categories)

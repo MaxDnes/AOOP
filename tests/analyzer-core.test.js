@@ -1083,3 +1083,23 @@ test("spec19 G12: june 1.5 pattern still resolves on the summer fixture (calibra
   const s15 = draft.slice(draft.indexOf("1.5 Design"));
   ok(/Strategy|Facade/.test(s15), "1.5 must still name Strategy or Facade for the Summer fixture");
 });
+
+/* ---- OOP pillars: scan also reports inheritance / abstraction / polymorphism, across files ---- */
+test("scan reports the OOP pillars and resolves inheritance across multiple files", () => {
+  const { findings } = A.scan([
+    { name: "Animals.cs", text: "public interface IFeeder { void Feed(); }\npublic abstract class Animal {\n  private string _name = \"\";\n  public string Name => _name;\n  public virtual string Speak() => \"...\";\n}" },
+    { name: "Dog.cs", text: "public class Dog : Animal, IFeeder {\n  public override string Speak() => \"Woof\";\n  public void Feed() {}\n}" },
+  ]);
+  const pres = findings.filter((f) => f.kind === "presence");
+  const byP = (p) => pres.find((f) => f.principle === p);
+  ok(byP("INH"), "inheritance pillar detected");
+  ok(byP("ABS"), "abstraction pillar detected");
+  ok(byP("POLY"), "polymorphism pillar detected");
+  /* the inheritance link is resolved across files: Dog (Dog.cs) extends Animal (Animals.cs) */
+  includes(byP("INH").message, "Dog : Animal");
+  includes(byP("INH").message, "another file");
+  eq(byP("INH").file, "Dog.cs");
+});
+test("the four OOP pillars are first-class principles", () => {
+  ["ENC", "INH", "ABS", "POLY"].forEach((p) => ok(A.PRINCIPLES[p] && A.PRINCIPLES[p].name, "missing principle " + p));
+});

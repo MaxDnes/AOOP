@@ -351,6 +351,28 @@
     },
   };
 
+  /* Normalize the catalog so EVERY visual element can be sized, positioned and
+     aligned: add Width/Height (bindable), Margin (four-side editor) and
+     Horizontal/VerticalAlignment wherever a control's own definition didn't already
+     declare them. Added only where missing, so each control's explicit props (and
+     their bindable flags / custom options) are preserved. The Window root is left
+     alone — a window has no Margin/Alignment. Width/Height on every element also
+     means the resize grips (which require both) now appear on every element. */
+  (function ensureLayoutPropsForAll() {
+    Object.keys(CATALOG).forEach(function (type) {
+      var def = CATALOG[type];
+      if (!def || def.group === "Root") return;
+      var names = (def.props || []).map(function (p) { return p.name; });
+      var add = [];
+      if (names.indexOf("Width") === -1) add.push({ name: "Width", kind: "number", bindable: true, vmType: "double" });
+      if (names.indexOf("Height") === -1) add.push({ name: "Height", kind: "number", bindable: true, vmType: "double" });
+      if (names.indexOf("Margin") === -1) add.push({ name: "Margin", kind: "thickness" });
+      if (names.indexOf("HorizontalAlignment") === -1) add.push({ name: "HorizontalAlignment", kind: "select", options: ["Left", "Center", "Right", "Stretch"] });
+      if (names.indexOf("VerticalAlignment") === -1) add.push({ name: "VerticalAlignment", kind: "select", options: ["Top", "Center", "Bottom", "Stretch"] });
+      if (add.length) def.props = (def.props || []).concat(add);
+    });
+  })();
+
   const PALETTE_GROUPS = [
     { name: "Layout", hint: "arrange things on screen", types: ["StackPanel", "Grid", "DockPanel", "WrapPanel", "Border", "ScrollViewer", "Canvas"] },
     { name: "Containers", hint: "sections, tabs & dividers", types: ["TabControl", "TabItem", "Expander", "Separator"] },

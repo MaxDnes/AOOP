@@ -1245,3 +1245,26 @@ test("Visual Designer reproduces the CircleCodeBehind MVVM (bindings + VM member
   includes(viewModel, "[RelayCommand]");
   includes(viewModel, "Reset");
 });
+
+/* every visual element can be dynamically sized / aligned / margin-positioned */
+test("every non-root element exposes Width/Height/Margin/alignment (sizable any element)", () => {
+  Object.keys(C.CATALOG).forEach(function (type) {
+    const def = C.CATALOG[type];
+    if (def.group === "Root") return;
+    const names = (def.props || []).map(function (p) { return p.name; });
+    ["Width", "Height", "Margin", "HorizontalAlignment", "VerticalAlignment"].forEach(function (n) {
+      ok(names.indexOf(n) !== -1, type + " should expose " + n);
+    });
+  });
+});
+test("catalog normalization introduced no duplicate prop names", () => {
+  Object.keys(C.CATALOG).forEach(function (type) {
+    const names = (C.CATALOG[type].props || []).map(function (p) { return p.name; });
+    const seen = {};
+    names.forEach(function (n) { ok(!seen[n], type + " has duplicate prop " + n); seen[n] = 1; });
+  });
+});
+test("a CheckBox (previously fixed) now carries bindable Width to dynamically size it", () => {
+  const w = (C.CATALOG.CheckBox.props || []).find(function (p) { return p.name === "Width"; });
+  ok(w && w.bindable && w.vmType === "double", "CheckBox Width is bindable double");
+});

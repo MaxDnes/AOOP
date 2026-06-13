@@ -350,3 +350,30 @@ test("DSG.setThicknessSide exists and composes a four-side Margin on the selecte
   const tree = JSON.parse(global.localStorage.getItem("aop-designer-current")).tree;
   eq(tree.props.Margin, "10,0,20,0", "left + right sides compose into the L,T,R,B string");
 });
+
+/* center move handle: the selected element renders a drag-to-move gizmo */
+test("selected element renders a center move handle (drag-to-set-Margin)", () => {
+  require("../data/designer.js");
+  const C = global.DESIGNER_CORE;
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const el = C.createNode("Ellipse"); C.addChild(tree, sp.id, el);
+  const html = global.DESIGNER.previewHTML(tree, el.id);
+  includes(html, 'data-grip="move"', "selected element shows the move handle");
+  includes(html, 'class="dsg-move"');
+  /* an unselected element does not get a move handle */
+  const html2 = global.DESIGNER.previewHTML(tree, sp.id);
+  ok(html2.indexOf('class="dsg-move"') !== -1, "the selected StackPanel itself gets one");
+});
+
+/* with every element sizable, resize grips now appear on controls that had none */
+test("any element (e.g. CheckBox) shows resize grips when selected", () => {
+  require("../data/designer.js");
+  const C = global.DESIGNER_CORE;
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const cb = C.createNode("CheckBox"); C.addChild(tree, sp.id, cb);
+  const html = global.DESIGNER.previewHTML(tree, cb.id);
+  includes(html, 'data-grip="nw"', "CheckBox is resizable now");
+  includes(html, 'data-grip="se"');
+});

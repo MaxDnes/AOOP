@@ -13,6 +13,7 @@
 "use strict";
 
 var CATS = [
+  { name: "Exam Theory",            color: "#f28fad" },
   { name: "OOP",                    color: "#39bae6" },
   { name: "SOLID",                  color: "#d2a6ff" },
   { name: "Avalonia & MVVM",        color: "#e6b450" },

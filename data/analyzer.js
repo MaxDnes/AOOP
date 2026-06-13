@@ -13,14 +13,16 @@
 "use strict";
 
 const STORE_KEY = "aop-analyzer-state";
-const PRINCIPLE_ORDER = ["SRP", "OCP", "LSP", "ISP", "DIP", "ENC", "POLY"];
-/* POLY folded into the theory chip row so its theory is reachable */
-const THEORY_CHIPS = ["SRP", "OCP", "LSP", "ISP", "DIP", "ENC", "POLY"];
+const PRINCIPLE_ORDER = ["SRP", "OCP", "LSP", "ISP", "DIP", "ENC", "INH", "ABS", "POLY"];
+/* the four OOP pillars (ENC/INH/ABS/POLY) sit after the five SOLID chips so their
+   theory is reachable alongside SOLID */
+const THEORY_CHIPS = ["SRP", "OCP", "LSP", "ISP", "DIP", "ENC", "INH", "ABS", "POLY"];
 /* the 6 coverage chips the rubric maps to (one SOLID each + encapsulation) */
 const COVERAGE_CHIPS = ["SRP", "OCP", "LSP", "ISP", "DIP", "ENC"];
 const PRINCIPLE_COLORS = {
   SRP: "#7fd962", OCP: "#e6b450", LSP: "#f07178",
   ISP: "#39bae6", DIP: "#d2a6ff", ENC: "#f28fad", POLY: "#b8cfe6",
+  INH: "#aad94c", ABS: "#ffb454",
 };
 
 /* per-principle hunt checklist: patterns to look for and what they imply */

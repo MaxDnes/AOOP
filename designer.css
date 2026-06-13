@@ -714,3 +714,17 @@ body.dsg-grabbing, body.dsg-grabbing * { cursor: move !important; }
   -moz-appearance: textfield;
 }
 .dsg-th::-webkit-outer-spin-button, .dsg-th::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* ---------------- center move handle (drag to set Margin) ---------------- */
+.dsg-move {
+  position: absolute; top: 50%; left: 50%;
+  width: 24px; height: 24px; margin: -12px 0 0 -12px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--cyan); color: #06121a;
+  border: 2px solid #ffffff; border-radius: 50%;
+  cursor: move; z-index: 6;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+  opacity: 0.92;
+}
+.dsg-move:hover { opacity: 1; background: var(--amber); }
+.dsg-move svg { display: block; pointer-events: none; }

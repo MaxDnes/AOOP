@@ -2,8 +2,14 @@
 const { test, eq, ok } = require("./t.js");
 global.window = global;
 const BANK = require("../data/quiz-bank.js");
-const CATS = ["OOP", "SOLID", "Avalonia & MVVM", "Testing", "Threading & Async", "LINQ & JSON", "Collections & Generics", "Design Process"];
+const CATS = ["Exam Theory", "OOP", "SOLID", "Avalonia & MVVM", "Testing", "Threading & Async", "LINQ & JSON", "Collections & Generics", "Design Process"];
 test("bank has at least 120 questions", () => ok(BANK.length >= 120, "got " + BANK.length));
+test("Exam Theory category has exactly the 20 Problem-1-style MCQs", () => {
+  const et = BANK.filter((q) => q.cat === "Exam Theory");
+  ok(et.length === 20, "expected 20 Exam Theory questions, got " + et.length);
+  ok(et.filter((q) => q.type === "code-mc").length >= 12, "most Exam Theory questions should carry a code snippet");
+  ok(et.every((q) => q.type !== "short"), "Exam Theory questions are all multiple choice");
+});
 test("every category has at least 10 questions", () => {
   CATS.forEach((c) => ok(BANK.filter((q) => q.cat === c).length >= 10, c));
 });

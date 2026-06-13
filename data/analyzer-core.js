@@ -267,6 +267,14 @@
       name: "Polymorphism",
       summary: "Clients call an abstraction and the runtime dispatches to the right implementation through virtual methods or interface dispatch. Manual runtime type checks and 'new' member hiding defeat it: the compile-time type of the reference, not the runtime type of the object, ends up deciding what runs.",
     },
+    INH: {
+      name: "Inheritance",
+      summary: "A derived class reuses and specialises the state and behaviour of a base class, modelling an is-a relationship. C# allows a single base class (plus any number of interfaces). Used well it factors shared code into a base type and lets subclasses extend it; the related warnings are deep hierarchies, fragile bases, and breaking substitutability (LSP) when a subclass cannot stand in for its base.",
+    },
+    ABS: {
+      name: "Abstraction",
+      summary: "Expose WHAT a type does and hide HOW it does it. Interfaces and abstract classes name the operations a family of types must provide, so callers depend on the contract rather than a concrete implementation. Abstraction is the pillar the Dependency Inversion and Open/Closed principles build on: program to an abstraction and you can swap or add implementations without touching the caller.",
+    },
   };
 
   /* ================= rules ================= */
@@ -1424,6 +1432,91 @@
       });
     }
 
+    /* ---- Inheritance present: a class derives from a base CLASS, resolved across
+       files via the index (so a Derived in one file extending a Base in another is
+       still detected — this is the cross-file half of the scan). ---- */
+    const inhPairs = [];
+    ctxs.forEach((ctx) => {
+      ctx.classes.forEach((cls) => {
+        if (cls.kind !== "class" && cls.kind !== "record") return;
+        const head = ctx.stripped.slice(cls.declIdx, cls.open);
+        const co = head.indexOf(":");
+        if (co === -1) return;
+        head.slice(co + 1).split(",").map((s) => s.trim().replace(/<.*$/, "")).filter(Boolean).forEach((b) => {
+          if (index.classes[b]) inhPairs.push({ ctx, derived: cls.name, base: b, line: cls.line, baseFile: index.classes[b].file });
+        });
+      });
+    });
+    if (inhPairs.length) {
+      const h = inhPairs[0];
+      const txt = inhPairs.slice(0, 4).map((p) => p.derived + " : " + p.base).join(", ") + (inhPairs.length > 4 ? ", …" : "");
+      const crossFile = inhPairs.some((p) => p.baseFile && p.baseFile !== p.ctx.name);
+      push({
+        principle: "INH", title: "Inheritance is used (base / derived classes)",
+        file: h.ctx.name, line: h.line, excerpt: excerptAt(h.ctx, h.line),
+        classes: Array.from(new Set(inhPairs.map((p) => p.derived))),
+        message: txt + " — a derived class extends a base class" + (crossFile ? ", defined in another file" : "") + ".",
+        evidence: txt,
+        paragraph: "Inheritance is present: " + txt + ". A derived class reuses and specialises the members of its base class" +
+          (crossFile ? "; here the base class lives in a different file, so the relationship spans multiple files of the project" : "") +
+          " (" + h.ctx.name + ":" + h.line + "). Purpose: factor shared state and behaviour into a base type and extend or specialise it in subclasses — an is-a relationship, with a single base class allowed per type in C#.",
+      });
+    }
+
+    /* ---- Abstraction present: abstract classes and/or interfaces define contracts ---- */
+    const abstractCls = Object.keys(index.classes).filter((n) => index.classes[n].isAbstract);
+    if (abstractCls.length || ifaceNames.length) {
+      let aFile, aLine, lead;
+      if (abstractCls.length) {
+        const info = index.classes[abstractCls[0]];
+        aFile = info.file; aLine = info.line; lead = "abstract class " + abstractCls.slice(0, 3).join(", ");
+      } else {
+        const info = index.interfaces[ifaceNames[0]];
+        aFile = info.file; aLine = info.line; lead = "interface " + ifaceNames.slice(0, 3).join(", ");
+      }
+      const actx = ctxByName(ctxs, aFile);
+      const both = abstractCls.length && ifaceNames.length;
+      const extra = both ? " plus " + ifaceNames.length + " interface" + (ifaceNames.length === 1 ? "" : "s") : "";
+      push({
+        principle: "ABS", title: "Abstraction is used (interfaces / abstract classes)",
+        file: aFile, line: aLine, excerpt: actx ? excerptAt(actx, aLine) : "",
+        message: lead + extra + " expose WHAT a type does while hiding HOW.",
+        evidence: lead + extra,
+        paragraph: "Abstraction is present: " + lead + extra + " (" + aFile + ":" + aLine +
+          "). An abstract type names the operations a family of types must provide and leaves the implementation to concrete subclasses/implementers, so callers depend on the contract rather than a concrete class. This is the OOP abstraction pillar and the foundation the Dependency Inversion and Open/Closed principles build on.",
+      });
+    }
+
+    /* ---- Polymorphism present: virtual/override dispatch, else interface dispatch ---- */
+    let polyHit = null;
+    ctxs.forEach((ctx) => {
+      if (polyHit) return;
+      const mm = /\boverride\b/.exec(ctx.stripped);
+      if (mm) polyHit = { ctx, line: lineOfIndex(ctx.stripped, mm.index), how: "a subclass overrides a base method" };
+    });
+    if (!polyHit) {
+      const implName = Object.keys(classImplements)[0];
+      if (implName) {
+        let found = null;
+        ctxs.forEach((ctx) => {
+          if (found) return;
+          const c = ctx.classes.find((x) => x.name === implName);
+          if (c) found = { ctx, line: c.line };
+        });
+        if (found) polyHit = { ctx: found.ctx, line: found.line, how: implName + " is consumed through the interface " + classImplements[implName].join("/") + " it implements" };
+      }
+    }
+    if (polyHit) {
+      push({
+        principle: "POLY", title: "Polymorphism is used (override / interface dispatch)",
+        file: polyHit.ctx.name, line: polyHit.line, excerpt: excerptAt(polyHit.ctx, polyHit.line),
+        message: "Runtime dispatch: " + polyHit.how + ", so the object's runtime type decides which implementation runs.",
+        evidence: polyHit.how,
+        paragraph: "Polymorphism is present: " + polyHit.how + " (" + polyHit.ctx.name + ":" + polyHit.line +
+          "). Purpose: a caller holds a base-type or interface reference and the runtime dispatches to the concrete implementation, so new types plug in without changing the calling code. This virtual/interface dispatch is the mechanism behind the Strategy and Observer patterns and behind the Open/Closed principle.",
+      });
+    }
+
     /* ---- Singleton pattern (spec 18 §A.1): a class with a private constructor
        AND a static Instance accessor (or a Lazy<Self> field) returning the type.
        Names the variant (lazy vs eager). A plain static helper class — all
@@ -1647,7 +1740,7 @@
 
   /* the 5 SOLID principles in rubric order, then the OO pillars */
   const RUBRIC_ORDER = ["SRP", "OCP", "LSP", "ISP", "DIP"];
-  const PILLAR_ORDER = ["ENC", "POLY"];
+  const PILLAR_ORDER = ["ENC", "INH", "ABS", "POLY"];
 
   /* one-line "general purpose" sentence per principle, for sections that have a
      finding (presence or violation) but where we still want the purpose stated */
@@ -1659,6 +1752,8 @@
     DIP: "Purpose: high-level policy should depend on abstractions, with the concrete choice made once in the composition root and injected, never constructed inside business classes.",
     ENC: "Purpose: an object owns its state and exposes behaviour, keeping fields private so it can enforce its invariants and change representation without breaking callers.",
     POLY: "Purpose: clients call an abstraction and the runtime dispatches to the right implementation, replacing manual type checks with virtual/interface dispatch.",
+    INH: "Purpose: factor shared state and behaviour into a base class and let subclasses extend or specialise it, modelling an is-a relationship without duplicating code.",
+    ABS: "Purpose: expose what a type does through an interface or abstract class while hiding how, so callers depend on the contract and implementations can be swapped or added freely.",
   };
 
   /* spec 19 G3: frame a cross-cutting finding for a SECONDARY principle it also
