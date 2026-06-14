@@ -18,6 +18,7 @@ const STORE_VERSION = 1;   /* version-stamped payloads ({v:1, ...}) with gracefu
    build only the relevant dropdowns/inputs. Kept in the UI layer; the core
    owns the actual code generation. */
 const SHAPE_UI = [
+  { key: "list-method",            icon: "ƒ",  label: "apply a method (ToString…)",  needs: ["method"] },
   { key: "filter-equals",          icon: "=",  label: "filter · compare",           needs: ["field", "op", "value", "ci"] },
   { key: "filter-contains",        icon: "∋",  label: "filter · contains",          needs: ["field", "value", "ci"] },
   { key: "filter-empty-collection",icon: "∅",  label: "filter · empty collection",  needs: ["collectionField"] },
@@ -54,6 +55,23 @@ const EQ_MATCH_MODES = [
   { key: "null",   label: "== null (empty/missing)" },
 ];
 const AGGREGATES = ["Count", "Average", "Max", "Min"];
+
+/* methods you can apply to the whole deserialised list (task 3.1.3 and friends).
+   `field: true` means the method reduces a chosen field; the rest act on items. */
+const LIST_METHODS = [
+  { key: "toString", label: "ToString() → override model + print every item", field: false },
+  { key: "count",    label: "Count — how many items",                         field: false },
+  { key: "sum",      label: "Sum of a field",                                 field: true },
+  { key: "average",  label: "Average of a field",                             field: true },
+  { key: "min",      label: "Min of a field",                                 field: true },
+  { key: "max",      label: "Max of a field",                                 field: true },
+  { key: "distinct", label: "Distinct values of a field",                     field: true },
+  { key: "first",    label: "First item",                                     field: false },
+  { key: "last",     label: "Last item",                                      field: false },
+  { key: "any",      label: "Any — is the list non-empty",                    field: false },
+];
+const LIST_METHOD_BY_KEY = {};
+LIST_METHODS.forEach(function (m) { LIST_METHOD_BY_KEY[m.key] = m; });
 
 /* Supabase-style comparison operators for the scalar filter row. */
 const OPERATORS = [
@@ -452,6 +470,20 @@ function rowHTML(row, i) {
     h += "</div>";
     h += "</div>";   /* close ql-row */
     return h;
+  }
+  /* list-method: pick a terminal method, plus a field when it reduces one */
+  if (needs.indexOf("method") !== -1) {
+    const method = row.method || "toString";
+    h += '<select class="ql-sel" title="method to apply to the deserialised list" onchange="QL.setRow(' + i + ', \'method\', this.value)">';
+    LIST_METHODS.forEach(function (m) {
+      h += '<option value="' + m.key + '"' + (m.key === method ? " selected" : "") + ">" + esc(m.label) + "</option>";
+    });
+    h += "</select>";
+    const md = LIST_METHOD_BY_KEY[method];
+    if (md && md.field) {
+      h += '<span class="ql-inline-lab">of</span>';
+      h += fieldSelect(row, "field", scalarFields(), row.field);
+    }
   }
   if (needs.indexOf("field") !== -1) {
     h += fieldSelect(row, "field", rootFields(), row.field);

@@ -533,7 +533,7 @@
 
   /* ===================== model code emission ===================== */
 
-  function emitModelClasses(model, overrides) {
+  function emitModelClasses(model, overrides, emitToString) {
     overrides = overrides || {};
     var L = [];
     model.classes.forEach(function (cls, ci) {
@@ -556,6 +556,23 @@
           L.push("    public " + type + " " + f.property + " { get; set; }");
         }
       });
+      /* task 3.1.3: override ToString() on the root class to print every field.
+         Collections print their item count to stay valid across C# versions. */
+      if (emitToString && cls.name === model.rootClass && cls.fields.length) {
+        L.push("");
+        L.push("    public override string ToString()");
+        L.push("    {");
+        var parts = cls.fields.map(function (f) {
+          if (f.isCollection) {
+            var ovc = overrides[cls.name + "." + f.key];
+            var cnt = collectionIsNullable(f, ovc) ? f.property + "?.Count ?? 0" : f.property + ".Count";
+            return f.property + "={" + cnt + "} items";
+          }
+          return f.property + "={" + f.property + "}";
+        });
+        L.push('        return $"' + cls.name + ' {{ ' + parts.join(", ") + ' }}";');
+        L.push("    }");
+      }
       L.push("}");
     });
     return L.join("\n");
@@ -1067,7 +1084,45 @@
     return { expr: expr };
   }
 
+  /* first scalar (non-collection, non-object) field accessor on element "s", used
+     as a sensible default when a list-method needs a field and none is chosen. */
+  function firstScalarFieldRef(model) {
+    var root = model.byName[model.rootClass];
+    if (!root) return "s";
+    var f = root.fields.filter(function (x) { return !x.isCollection && !x.isObject; })[0];
+    return f ? "s." + f.property : "s";
+  }
+
+  /* "apply a method to the deserialised list" (task 3.1.3 and friends): ToString to
+     print every item, or a terminal LINQ method (Count/Sum/Average/Min/Max/First/
+     Last/Distinct/Any). ToString/First/Last also flag that the model needs a
+     ToString() override (see rowNeedsToString). */
+  function genListMethod(model, row, overrides) {
+    var method = row.method || "toString";
+    var fieldRefS = row.field ? fieldRef(model, row.field, overrides, "s") : firstScalarFieldRef(model);
+    if (method === "toString") return { isPrintAll: true };
+    if (method === "count")    return { expr: "source.Count", scalar: true };
+    if (method === "any")      return { expr: "source.Any()", scalar: true };
+    if (method === "first")    return { expr: "source.FirstOrDefault()", element: true };
+    if (method === "last")     return { expr: "source.LastOrDefault()", element: true };
+    if (method === "distinct") return { expr: "source.Select(s => " + fieldRefS + ").Distinct().ToList()", valueList: true };
+    if (method === "sum" || method === "average" || method === "min" || method === "max") {
+      var M = method.charAt(0).toUpperCase() + method.slice(1);
+      return { expr: "source." + M + "(s => " + fieldRefS + ")", scalar: true };
+    }
+    return { isPrintAll: true };
+  }
+
+  /* a row whose model needs a ToString() override: printing each item (ToString) or
+     printing a single element (First/Last) reads best with all fields overridden. */
+  function rowNeedsToString(row) {
+    if (!row || row.shape !== "list-method") return false;
+    var m = row.method || "toString";
+    return m === "toString" || m === "first" || m === "last";
+  }
+
   var SHAPES = {
+    "list-method": { gen: genListMethod, label: "apply a method to the list (ToString, Count, …)" },
     "filter-equals": { gen: genFilterEquals, label: "filter (compare a field)" },
     "most-frequent-per-group": { gen: genMostFrequentPerGroup, label: "per group: most/least frequent value" },
     "filter-contains": { gen: genFilterContains, label: "filter (field/collection contains value)" },
@@ -1130,11 +1185,44 @@
       return out;
     }
 
+    /* list-method "ToString / print all": no result variable, just walk the list
+       and Console.WriteLine each item (which calls the model's ToString override). */
+    if (result.isPrintAll) {
+      out.decl = "";
+      out.printBlock = [
+        'Console.WriteLine($"--- {source.Count} item(s): ' + esc(label) + ' ---");',
+        "foreach (var item in source)",
+        "{",
+        "    Console.WriteLine(item);",
+        "}",
+      ].join("\n");
+      out.needsToString = true;
+      return out;
+    }
+
     if (result.pre) out.pre = result.pre;
     out.decl = "var " + name + " = " + result.expr + ";";
+    if (result.element) out.needsToString = true;
 
     if (row.print) {
-      out.printBlock = buildPrint(model, row, name, result);
+      if (result.scalar) {
+        /* a single value (count / sum / average / min / max / bool) */
+        out.printBlock = 'Console.WriteLine($"' + esc(label) + ': {' + name + '}");';
+      } else if (result.element) {
+        /* a single element printed via its ToString override */
+        out.printBlock = 'Console.WriteLine("' + esc(label) + ': " + ' + name + ');';
+      } else if (result.valueList) {
+        /* a flat list of field values (Distinct) — print each value directly */
+        out.printBlock = [
+          'Console.WriteLine($"--- {' + name + '.Count} ' + esc(label) + ' ---");',
+          "foreach (var item in " + name + ")",
+          "{",
+          "    Console.WriteLine(item);",
+          "}",
+        ].join("\n");
+      } else {
+        out.printBlock = buildPrint(model, row, name, result);
+      }
     }
     if (row.output && isIdentifier(row.outputKey || name)) {
       out.outputKey = row.outputKey || name;
@@ -1235,9 +1323,11 @@
     queries.forEach(function (q, qi) {
       L.push("        // Query " + (qi + 1) + ": " + q.label);
       /* pre may be multi-line (e.g. the excludeNull above-average pre-filter +
-         average): indent() handles one or many lines identically. */
+         average): indent() handles one or many lines identically. A print-only
+         step (ToString print-all) has no declaration; its code is in the print
+         section below, so skip the empty decl line here. */
       if (q.pre) L.push(indent(q.pre, "        "));
-      L.push(indent(q.decl, "        "));
+      if (q.decl) L.push(indent(q.decl, "        "));
       L.push("");
     });
 
@@ -1404,7 +1494,7 @@
      classes, as an array of lines. Shared by both code paths so the inferred
      model is identical whether it lands in one file or the submission's
      Models.cs. Returns [] only when there are no classes at all. */
-  function emitModelSection(model, overrides) {
+  function emitModelSection(model, overrides, emitToString) {
     var L = [];
     if (model.rootKey) {
       var ns = "JsonRoot";
@@ -1416,7 +1506,7 @@
       L.push("}");
       L.push("");
     }
-    L.push(emitModelClasses(model, overrides));
+    L.push(emitModelClasses(model, overrides, emitToString));
     return L;
   }
 
@@ -1435,10 +1525,11 @@
     L.push("");
     L.push("namespace " + ns + ";");
     L.push("");
+    var emitTS = Array.isArray(rows) && rows.some(rowNeedsToString);
     /* Program class, then the wrapper + model classes, in one file (unchanged). */
     emitProgramClass(model, rows, opts).forEach(function (ln) { L.push(ln); });
     L.push("");
-    emitModelSection(model, overrides).forEach(function (ln) { L.push(ln); });
+    emitModelSection(model, overrides, emitTS).forEach(function (ln) { L.push(ln); });
     L.push("");
 
     return L.join("\n");
@@ -1468,7 +1559,8 @@
     P.push("");
 
     /* ---- Problem_4_Models.cs : usings + namespace + (wrapper +) model classes ---- */
-    var modelLines = emitModelSection(model, overrides);
+    var emitTS = Array.isArray(rows) && rows.some(rowNeedsToString);
+    var modelLines = emitModelSection(model, overrides, emitTS);
     var modelBody = modelLines.join("\n");
     var M = [];
     M.push("using System.Collections.Generic;");
@@ -2326,6 +2418,8 @@
       classNames: { "Item": "Comic" },
       overrides: {},
       rows: [
+        { shape: "list-method", method: "toString", name: "printAll", label: "print every comic (overrides ToString, task 3.1.3)", print: true, output: false },
+        { shape: "list-method", method: "count", name: "total", label: "total number of comics", print: true, output: true, outputKey: "totalComics" },
         { shape: "filter-equals", field: "releaseYear", op: "lt", value: "2000", name: "before2000", label: "released before 2000", print: true, output: true, outputKey: "releasedBefore2000" },
         { shape: "group-aggregate", field: "author", aggregate: "Count", sort: "valueDesc", name: "perAuthor", label: "comics per author, most first", print: true, output: true, outputKey: "comicsPerAuthor" },
         { shape: "most-frequent-per-group", field: "releaseYear", subField: "author", direction: "desc", name: "topAuthorPerYear", label: "most active author per year (ordered by year)", print: true, output: true, outputKey: "mostActiveAuthorPerYear" },

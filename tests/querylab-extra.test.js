@@ -210,3 +210,75 @@ test("free-text: code is emitted even when no data rows are supplied", () => {
   includes(r.csharp, ".Where(s =>", "generates a Where lambda");
   eq(r.data, null, "no data array when rows omitted");
 });
+
+/* ============================================================
+   list-method step: apply a method to the deserialised list
+   (task 3.1.3 ToString override, plus Count/Sum/.../First/Any)
+   ============================================================ */
+test("list-method shape is registered with a generator", () => {
+  ok(C.SHAPES && C.SHAPES["list-method"] && typeof C.SHAPES["list-method"].gen === "function",
+    "SHAPES has a list-method generator");
+});
+
+test("ToString method overrides ToString() on the root class and prints every item (3.1.3)", () => {
+  const p = C.comicsPreset();
+  const model = presetModel(p);
+  const code = C.generateProgram(model, [
+    { shape: "list-method", method: "toString", name: "printAll", label: "print all comics", print: true },
+  ], { namespace: "ComicQueries", inputFile: "comics.json", outputFile: "o.json" });
+  includes(code, "public override string ToString()", "model gains a ToString override");
+  // doubled braces so the interpolated string is valid C#, and every field listed
+  includes(code, 'return $"Comic {{ Title={Title}, Author={Author}, ReleaseYear={ReleaseYear} }}";', "ToString prints all fields");
+  includes(code, "foreach (var item in source)", "iterates the deserialised list");
+  includes(code, "Console.WriteLine(item);", "prints each item via ToString");
+});
+
+test("no ToString override is emitted when no list-method/ToString row is present", () => {
+  const p = C.comicsPreset();
+  const model = presetModel(p);
+  const code = C.generateProgram(model, [
+    { shape: "filter-equals", field: "releaseYear", op: "lt", value: "2000", name: "old", label: "old", print: true },
+  ], { namespace: "X" });
+  ok(code.indexOf("public override string ToString()") === -1, "ToString only appears when asked for");
+});
+
+test("the terminal list-methods each emit correct LINQ", () => {
+  const p = C.comicsPreset();
+  const model = presetModel(p);
+  const gen = (method, field) => C.generateProgram(model,
+    [{ shape: "list-method", method: method, field: field, name: "r", label: method, print: true }],
+    { namespace: "X" });
+  includes(gen("count"), "var r = source.Count;", "count");
+  includes(gen("sum", "releaseYear"), "var r = source.Sum(s => s.ReleaseYear);", "sum");
+  includes(gen("average", "releaseYear"), "var r = source.Average(s => s.ReleaseYear);", "average");
+  includes(gen("min", "releaseYear"), "var r = source.Min(s => s.ReleaseYear);", "min");
+  includes(gen("max", "releaseYear"), "var r = source.Max(s => s.ReleaseYear);", "max");
+  includes(gen("distinct", "author"), "var r = source.Select(s => s.Author).Distinct().ToList();", "distinct");
+  includes(gen("first"), "var r = source.FirstOrDefault();", "first");
+  includes(gen("last"), "var r = source.LastOrDefault();", "last");
+  includes(gen("any"), "var r = source.Any();", "any");
+});
+
+test("First/Last also trigger the ToString override (the element prints all fields)", () => {
+  const p = C.comicsPreset();
+  const model = presetModel(p);
+  const code = C.generateProgram(model,
+    [{ shape: "list-method", method: "first", name: "firstComic", label: "first comic", print: true }],
+    { namespace: "X" });
+  includes(code, "public override string ToString()", "First prints an element, so ToString is overridden");
+});
+
+test("the Comics preset demonstrates the ToString print-all + a Count step", () => {
+  const p = C.comicsPreset();
+  const shapes = p.rows.map((r) => r.shape);
+  ok(shapes.indexOf("list-method") !== -1, "comics preset includes a list-method step");
+  const ts = p.rows.filter((r) => r.shape === "list-method" && r.method === "toString")[0];
+  ok(ts, "comics preset prints every comic via ToString (task 3.1.3)");
+});
+
+test("a list-method submission compiles into the two flat files with allowed usings only", () => {
+  const r = C.generateSubmissionFromPreset(C.comicsPreset());
+  ok(r.ok, "comics submission generates");
+  includes(r.models, "public override string ToString()", "Models.cs carries the override");
+  includes(r.program, "var total = source.Count;", "Program.cs carries the count step");
+});
