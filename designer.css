@@ -406,6 +406,17 @@ select.dsg-in { padding: 4px 6px; }
   background: var(--line);
 }
 
+/* ---------------- size-locked window toggle ---------------- */
+.dsg-sizelock {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--text-dim);
+  cursor: pointer; user-select: none;
+  white-space: nowrap;
+}
+.dsg-sizelock input { cursor: pointer; margin: 0; }
+.dsg-sizelock:hover { color: var(--text); }
+
 /* ---------------- export full project (.zip) ---------------- */
 .dsg-exportproj-wrap {
   display: inline-flex; align-items: center; gap: 6px;
@@ -728,3 +739,22 @@ body.dsg-grabbing, body.dsg-grabbing * { cursor: move !important; }
 }
 .dsg-move:hover { opacity: 1; background: var(--amber); }
 .dsg-move svg { display: block; pointer-events: none; }
+
+/* per-element lock toggle: sits at the selection's top-right corner so it never
+   overlaps the centred move handle. Click to lock/unlock against accidental moves. */
+.dsg-lock {
+  position: absolute; top: -12px; right: -12px;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1;
+  background: var(--ink-2); color: var(--text);
+  border: 1px solid var(--cyan); border-radius: 50%;
+  cursor: pointer; z-index: 7;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+  opacity: 0.85; user-select: none;
+}
+.dsg-lock:hover { opacity: 1; border-color: var(--amber); }
+.dsg-lock.on { background: var(--amber); border-color: var(--amber); }
+/* a locked element reads as "pinned": amber dashed outline, no move cursor */
+.dsg .pv.locked.sel { outline: 1.5px dashed var(--amber); outline-offset: 1px; }
+.dsg .pv.locked.pv-oncanvas { cursor: default; }

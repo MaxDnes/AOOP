@@ -639,8 +639,12 @@
     const attrs = [];
     const model = typedModelOf(node);
 
+    const geomShape = node.type === "Line" || node.type === "Polygon";
     props.forEach((p) => {
       known[p.name] = true;
+      // Line/Polygon are point-defined; Width/Height are inert and would push the
+      // shape into the corner of an oversized box in the running app — never emit them.
+      if (geomShape && (p.name === "Width" || p.name === "Height")) return;
       if (bindings[p.name] != null && bindings[p.name] !== "") return; // binding wins
       const v = node.props[p.name];
       if (v == null || v === "") return;
@@ -648,9 +652,11 @@
       attrs.push(p.name + '="' + fmtValue(v) + '"');
     });
 
-    /* attached props (Grid.Row, Canvas.Left, DockPanel.Dock, ...) and any extras */
+    /* attached props (Grid.Row, Canvas.Left, DockPanel.Dock, ...) and any extras.
+       Rotation is handled specially below (it maps to a RenderTransform, not a
+       literal Rotation="" attribute, which Avalonia controls don't have). */
     Object.keys(node.props).forEach((name) => {
-      if (known[name]) return;
+      if (known[name] || name === "Rotation") return;
       const v = node.props[name];
       if (v == null || v === "") return;
       if (v === defaults[name]) return;
@@ -685,6 +691,38 @@
     });
 
     if (model) out.push({ model: model, modelOnly: true });
+
+    /* shapes render as NOTHING at runtime without a Stroke/Fill: a Line needs both
+       Stroke and StrokeThickness, a Polygon/Path needs a Fill or Stroke. The in-app
+       preview fakes these defaults, so guarantee the same here or the exported app
+       shows a blank window (the "no line at all" bug). Only fills gaps the user left. */
+    const hasAttr = function (name) {
+      if (bindings[name] != null && bindings[name] !== "") return true;
+      const pre = name + '="';
+      return attrs.some(function (a) { return a.slice(0, pre.length) === pre; });
+    };
+    if (node.type === "Line") {
+      if (!hasAttr("Stroke")) attrs.push('Stroke="Black"');
+      if (!hasAttr("StrokeThickness")) attrs.push('StrokeThickness="2"');
+    } else if (node.type === "Rectangle" || node.type === "Ellipse") {
+      // a fill-less, size-less shape is a 0x0 nothing at runtime; the preview shows
+      // a grey 80x50 box, so emit the same so the exported app matches.
+      if (!hasAttr("Width")) attrs.push('Width="80"');
+      if (!hasAttr("Height")) attrs.push('Height="50"');
+      if (!hasAttr("Fill") && !hasAttr("Stroke")) attrs.push('Fill="#9AA7B8"');
+    } else if (node.type === "Polygon" || node.type === "Path") {
+      if (!hasAttr("Fill") && !hasAttr("Stroke")) attrs.push('Fill="#9AA7B8"');
+    }
+
+    /* universal rotation: node.props.Rotation (degrees) -> a RenderTransform that
+       spins the element around its own centre, matching the in-app preview. */
+    const rot = Number(node.props.Rotation);
+    if (isFinite(rot) && rot !== 0) {
+      attrs.push('RenderTransform="rotate(' + rot + 'deg)"');
+      // 50%,50% (relative) = the element's centre; a bare "0.5,0.5" would be read as
+      // absolute pixels in Avalonia and rotate around the top-left corner instead.
+      attrs.push('RenderTransformOrigin="50%,50%"');
+    }
 
     return attrs;
   }
@@ -835,7 +873,11 @@
       '        x:Class="' + ns + '.Views.MainWindow"',
       '        x:DataType="vm:MainWindowViewModel"',
       '        Title="' + xmlEsc(tree.props.Title || "Exam App") + '"',
-      '        Width="' + (tree.props.Width || 600) + '" Height="' + (tree.props.Height || 400) + '">',
+      /* size-locked (default): a fixed, non-resizable window so the running app
+         keeps the exact layout shown in the designer. Unlock (SizeLocked=false)
+         to let the user resize it. */
+      '        Width="' + (tree.props.Width || 600) + '" Height="' + (tree.props.Height || 400) + '"'
+        + (tree.props.SizeLocked === false ? '' : ' CanResize="False"') + '>',
       '',
       '    <Design.DataContext><vm:MainWindowViewModel/></Design.DataContext>',
       '',

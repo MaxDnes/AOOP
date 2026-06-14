@@ -377,3 +377,84 @@ test("any element (e.g. CheckBox) shows resize grips when selected", () => {
   includes(html, 'data-grip="nw"', "CheckBox is resizable now");
   includes(html, 'data-grip="se"');
 });
+
+/* ---------------- broken-line fix: geometry-hugging box, no inert resize ---------------- */
+test("a Line preview hugs its geometry and translates into local box space", () => {
+  require("../data/designer.js");
+  const C = global.DESIGNER_CORE;
+  const tree = C.createNode("Window");
+  const cv = C.createNode("Canvas"); C.addChild(tree, tree.id, cv);
+  const ln = C.createNode("Line");
+  ln.props.StartPoint = "40,160"; ln.props.EndPoint = "330,250";
+  ln.props.Width = 270; ln.props.Height = 270;          // stray size props must NOT size the box
+  C.addChild(tree, cv.id, ln);
+  const html = global.DESIGNER.previewHTML(tree, ln.id);
+  const m = html.match(/<svg width="(\d+)" height="(\d+)"[^>]*><line x1="([\d.-]+)" y1="([\d.-]+)" x2="([\d.-]+)" y2="([\d.-]+)"/);
+  ok(m, "line svg renders");
+  ok(Math.abs(+m[1] - 290) < 10 && Math.abs(+m[2] - 90) < 10, "box hugs the 290x90 geometry, not 270x270: " + m[1] + "x" + m[2]);
+  ok(+m[3] < 8 && +m[4] < 8, "start point translated near the box origin (" + m[3] + "," + m[4] + ")");
+  notIncludes(html, "width:270px", "Width prop must not size the line box");
+});
+test("a Line shows the move handle but NO resize grips (geometry, not Width/Height)", () => {
+  require("../data/designer.js");
+  const C = global.DESIGNER_CORE;
+  const tree = C.createNode("Window");
+  const cv = C.createNode("Canvas"); C.addChild(tree, tree.id, cv);
+  const ln = C.createNode("Line"); C.addChild(tree, cv.id, ln);
+  const html = global.DESIGNER.previewHTML(tree, ln.id);
+  includes(html, 'data-grip="move"', "still movable");
+  notIncludes(html, 'data-grip="nw"', "no resize grips on a Line");
+  notIncludes(html, 'data-grip="se"', "no resize grips on a Line");
+});
+
+/* ---------------- rotation preview ---------------- */
+test("a rotated element renders a centred CSS rotate transform in the preview", () => {
+  require("../data/designer.js");
+  const C = global.DESIGNER_CORE;
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const el = C.createNode("Ellipse"); el.props.Rotation = 30; C.addChild(tree, sp.id, el);
+  const html = global.DESIGNER.previewHTML(tree, el.id);
+  includes(html, "transform:rotate(30deg)", "preview rotates the element");
+  includes(html, "transform-origin:center", "around its centre");
+});
+test("the inspector offers a Rotation control on a non-root element", () => {
+  const D = reloadDesignerFresh();
+  const C = global.DESIGNER_CORE;
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const el = C.createNode("Ellipse"); C.addChild(tree, sp.id, el);
+  global.localStorage.setItem("aop-designer-current",
+    JSON.stringify({ v: 1, tree: tree, selectedId: el.id, slot: "" }));
+  const html = reloadDesignerFresh().render();
+  includes(html, "Rotation", "inspector exposes Rotation");
+  includes(html, "DSG.toggleSizeLock", "toolbar exposes the size-lock toggle");
+});
+
+/* ---------------- per-element lock (no accidental move/resize) ---------------- */
+test("an unlocked selected element shows the move handle AND a lock toggle", () => {
+  require("../data/designer.js");
+  const C = global.DESIGNER_CORE;
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const html = global.DESIGNER.previewHTML(tree, sp.id);
+  includes(html, 'data-grip="move"', "movable when unlocked");
+  includes(html, "dsg-lock", "offers a lock toggle");
+  includes(html, 'draggable="true"', "draggable when unlocked");
+});
+test("a locked element drops the move handle + grips and can't be dragged", () => {
+  require("../data/designer.js");
+  const C = global.DESIGNER_CORE;
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const cb = C.createNode("CheckBox"); cb.locked = true; C.addChild(tree, sp.id, cb);
+  const html = global.DESIGNER.previewHTML(tree, cb.id);
+  notIncludes(html, 'data-grip="move"', "no move handle when locked");
+  notIncludes(html, 'data-grip="nw"', "no resize grips when locked");
+  includes(html, "dsg-lock on", "shows the locked toggle");
+  includes(html, 'data-id="' + cb.id + '" draggable="false"', "not natively draggable when locked");
+});
+test("the designer exposes a toggleLock handler", () => {
+  const D = reloadDesignerFresh();
+  includes(D.render(), "DSG.toggleLock", "lock toggle wired to a handler");
+});

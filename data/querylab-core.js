@@ -712,6 +712,14 @@
   }
 
   function genFilterEquals(model, row, overrides) {
+    return { expr: "source\n    .Where(s => " + filterCmp(model, row, overrides) + ")\n    .ToList()" };
+  }
+
+  /* The bare boolean comparison string for a scalar filter row (no Where/ToList
+     wrapper), e.g. `s.Tag == "Woodworking"` or `s.Signups > 10`. Factored out of
+     genFilterEquals so the free-text query engine reuses the exact same
+     typed-literal + null-safety rules. */
+  function filterCmp(model, row, overrides) {
     var f = findRootField(model, row.field);
     var ref = fieldRef(model, row.field, overrides);
     var base = rootEffectiveBase(model, f, overrides);
@@ -768,7 +776,7 @@
         cmp = ref + " " + sym + " " + (lit2 !== null ? lit2 : csString(row.value));
       }
     }
-    return { expr: "source\n    .Where(s => " + cmp + ")\n    .ToList()" };
+    return cmp;
   }
 
   function genFilterContains(model, row, overrides) {
@@ -1561,7 +1569,15 @@
   }
 
   function presets() {
-    return { summer: summerPreset(), reexam: reexamPreset() };
+    return {
+      summer: summerPreset(), reexam: reexamPreset(),
+      workshops: workshopsPreset(), lighthouses: lighthousesPreset(), comics: comicsPreset(),
+    };
+  }
+  /* look a preset up by its key (used by the UI's preset buttons) */
+  function presetByKey(key) {
+    var all = presets();
+    return Object.prototype.hasOwnProperty.call(all, key) ? all[key] : null;
   }
 
   /* Build a complete generated program directly from a preset (sample ->
@@ -1902,6 +1918,421 @@
     return { ok: false, error: "Could not read data rows (invalid JSON / CSV)." };
   }
 
+  /* ===================== free-text (plain-English) query ===================== */
+  /* Turn a sentence like "released after 2023 and name starts with rtx" into a
+     boolean predicate tree over the root fields, then (a) run it on the data and
+     (b) emit the equivalent C# .Where(...). Supports and/or (and binds tighter
+     than or) with parentheses, the comparison operators (= != > < >= <=, plus
+     after/before/over/under/at least/at most), starts with / ends with /
+     contains, and is null / is not null / no <field>. Field names resolve
+     loosely so "released" finds ReleaseYear and "port" finds HomePort. */
+
+  function splitCamel(s) {
+    return String(s == null ? "" : s).replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[\s_]+/).filter(Boolean);
+  }
+  /* a token plus a couple of cheap morphological stems so "released" matches the
+     field word "release", "signups" matches "signup", etc. */
+  function freeStems(t) {
+    var out = [t];
+    [/ing$/, /ed$/, /es$/, /s$/, /d$/].forEach(function (re) {
+      if (re.test(t)) { var s = t.replace(re, ""); if (s.length >= 3 && out.indexOf(s) === -1) out.push(s); }
+    });
+    return out;
+  }
+  /* Resolve a typed-by-the-user word to a root field, or null. Exact property/key
+     wins; otherwise the best word-stem overlap (score >= 2) is taken. */
+  function resolveFreeField(model, token) {
+    var root = model && model.byName ? model.byName[model.rootClass] : null;
+    if (!root) return null;
+    var t = String(token == null ? "" : token).toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!t) return null;
+    var fields = root.fields, i;
+    for (i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      if (f.property.toLowerCase() === t) return f;
+      if (String(f.key).toLowerCase().replace(/[^a-z0-9]/g, "") === t) return f;
+    }
+    var tStems = freeStems(t), best = null, bestScore = 0;
+    for (i = 0; i < fields.length; i++) {
+      var f2 = fields[i];
+      var words = splitCamel(f2.property).map(function (x) { return x.toLowerCase(); });
+      words.push(f2.property.toLowerCase());
+      var sc = 0;
+      words.forEach(function (w) {
+        tStems.forEach(function (ts) {
+          if (w === ts) sc = Math.max(sc, 3);
+          else if (ts.length >= 3 && (w.indexOf(ts) === 0 || ts.indexOf(w) === 0)) sc = Math.max(sc, 2);
+        });
+      });
+      if (sc > bestScore) { bestScore = sc; best = f2; }
+    }
+    return bestScore >= 2 ? best : null;
+  }
+
+  function freeTokens(text) {
+    var s = String(text == null ? "" : text), toks = [], i = 0, n = s.length;
+    function isWord(c) { return /[A-Za-z0-9_]/.test(c); }
+    while (i < n) {
+      var c = s[i];
+      if (c === " " || c === "\t" || c === "\n" || c === "\r") { i++; continue; }
+      if (c === "(") { toks.push({ t: "lp" }); i++; continue; }
+      if (c === ")") { toks.push({ t: "rp" }); i++; continue; }
+      if (c === ",") { toks.push({ t: "and" }); i++; continue; }
+      if (c === '"' || c === "'") { var q = c; i++; var b = ""; while (i < n && s[i] !== q) { b += s[i]; i++; } i++; toks.push({ t: "str", v: b }); continue; }
+      var two = s.substr(i, 2);
+      if (two === ">=" || two === "<=" || two === "!=" || two === "<>" || two === "==") { toks.push({ t: "op", v: two === "<>" ? "!=" : (two === "==" ? "=" : two) }); i += 2; continue; }
+      if (c === "&" && s[i + 1] === "&") { toks.push({ t: "and" }); i += 2; continue; }
+      if (c === "|" && s[i + 1] === "|") { toks.push({ t: "or" }); i += 2; continue; }
+      if (c === ">" || c === "<" || c === "=") { toks.push({ t: "op", v: c }); i++; continue; }
+      if (/[0-9]/.test(c) || (c === "-" && /[0-9]/.test(s[i + 1] || ""))) {
+        var num = c; i++; while (i < n && /[0-9.]/.test(s[i])) { num += s[i]; i++; } toks.push({ t: "num", v: num }); continue;
+      }
+      if (isWord(c)) {
+        var w = ""; while (i < n && isWord(s[i])) { w += s[i]; i++; }
+        var lw = w.toLowerCase();
+        if (lw === "and") toks.push({ t: "and" });
+        else if (lw === "or") toks.push({ t: "or" });
+        else toks.push({ t: "word", v: w });
+        continue;
+      }
+      i++; /* skip any other punctuation */
+    }
+    return toks;
+  }
+
+  /* Parse the token stream into a predicate node, throwing a friendly Error on a
+     malformed clause (caught by freeQuery). */
+  function freeParse(text, model) {
+    var toks = freeTokens(text);
+    if (!toks.length) throw new Error('Type a query, e.g. "released after 2023 and name starts with rtx".');
+    var pos = 0;
+    function peek() { return toks[pos]; }
+    function next() { return toks[pos++]; }
+    function wl(tok) { return tok && tok.t === "word" ? tok.v.toLowerCase() : null; }
+    function fail(m) { throw new Error(m); }
+    var SPECIAL_LEAD = { "no": 1, "without": 1, "missing": 1, "named": 1, "called": 1 };
+
+    function readValue() {
+      var parts = [];
+      while (peek() && (peek().t === "str" || peek().t === "num" || peek().t === "word")) {
+        parts.push(peek().v); next();
+      }
+      return parts.join(" ");
+    }
+
+    function parseOperator() {
+      var p = peek();
+      if (p && p.t === "op") { next(); var M = { ">": "gt", "<": "lt", ">=": "gte", "<=": "lte", "=": "eq", "!=": "neq" }; return { op: M[p.v] || "eq", needsValue: true, ci: true, raw: p.v }; }
+      var lw = wl(p);
+      if (!lw) fail("expected an operator after the field");
+      if (lw === "is") {
+        next(); var q = wl(peek());
+        if (q === "null" || q === "empty" || q === "missing" || q === "none" || q === "blank") { next(); return { op: "isnull", needsValue: false }; }
+        if (q === "not") { next(); var r = wl(peek()); if (r === "null" || r === "empty" || r === "missing" || r === "none") { next(); return { op: "isnotnull", needsValue: false }; } return { op: "neq", needsValue: true, ci: true }; }
+        return { op: "eq", needsValue: true, ci: true };
+      }
+      if (lw === "equals" || lw === "equal" || lw === "eq") { next(); if (wl(peek()) === "to") next(); return { op: "eq", needsValue: true, ci: true }; }
+      if (lw === "isnt" || lw === "isn") { next(); return { op: "neq", needsValue: true, ci: true }; }
+      if (lw === "not") { next(); if (wl(peek()) === "equal") { next(); if (wl(peek()) === "to") next(); } return { op: "neq", needsValue: true, ci: true }; }
+      if (lw === "after" || lw === "over" || lw === "above" || lw === "exceeds" || lw === "exceeding" || lw === "past") { next(); return { op: "gt", needsValue: true }; }
+      if (lw === "before" || lw === "under" || lw === "below") { next(); return { op: "lt", needsValue: true }; }
+      if (lw === "greater" || lw === "more" || lw === "larger" || lw === "bigger" || lw === "newer") { next(); if (wl(peek()) === "than") next(); return { op: "gt", needsValue: true }; }
+      if (lw === "less" || lw === "fewer" || lw === "smaller" || lw === "lower" || lw === "older") { next(); if (wl(peek()) === "than") next(); return { op: "lt", needsValue: true }; }
+      if (lw === "at") { next(); var a = wl(peek()); if (a === "least") { next(); return { op: "gte", needsValue: true }; } if (a === "most") { next(); return { op: "lte", needsValue: true }; } fail("expected 'least' or 'most' after 'at'"); }
+      if (lw === "starts" || lw === "start" || lw === "begins" || lw === "begin" || lw === "startswith" || lw === "beginning") { next(); if (wl(peek()) === "with") next(); return { op: "starts", needsValue: true, ci: true }; }
+      if (lw === "ends" || lw === "end" || lw === "endswith" || lw === "ending") { next(); if (wl(peek()) === "with") next(); return { op: "ends", needsValue: true, ci: true }; }
+      if (lw === "contains" || lw === "contain" || lw === "containing" || lw === "includes" || lw === "include" || lw === "including" || lw === "like" || lw === "has" || lw === "matching" || lw === "matches") { next(); return { op: "contains", needsValue: true, ci: true }; }
+      if (lw === "named" || lw === "called") { next(); return { op: "eq", needsValue: true, ci: true }; }
+      fail("don't understand the operator near '" + (p.v || lw) + "'");
+    }
+
+    function expectField() {
+      var p = peek();
+      if (!p || p.t !== "word") fail("expected a field name" + (p ? " near '" + (p.v || p.t) + "'" : ""));
+      var f = resolveFreeField(model, p.v);
+      if (!f) fail("unknown field: '" + p.v + "'");
+      next();
+      return f;
+    }
+
+    function parseCmp() {
+      /* skip leading filler/dataset words ("show", "all", "gpus", "whose") that
+         resolve to neither a field nor a special keyword — but ONLY when another
+         word follows (the sentence continues). A lone unknown word sitting right
+         before an operator/value is the user's (mistyped) field, so we let it fall
+         through to expectField() and report a precise "unknown field". */
+      var skipped = 0;
+      while (peek() && peek().t === "word" && skipped < 4) {
+        var w0 = peek().v.toLowerCase();
+        if (SPECIAL_LEAD[w0]) break;
+        if (resolveFreeField(model, peek().v)) break;
+        var nxt = toks[pos + 1];
+        if (!nxt || nxt.t !== "word") break;
+        skipped++; next();
+      }
+      var p = peek();
+      if (!p) fail("incomplete clause");
+      var lw = wl(p);
+      if (lw === "no" || lw === "without" || lw === "missing") { next(); var fn = expectField(); return { field: fn.key, op: "isnull" }; }
+      if (lw === "named" || lw === "called") {
+        next();
+        var disp = pickDisplayField(model);
+        var df = disp ? resolveFreeField(model, disp) : null;
+        if (!df) fail("no name/title field to match 'named'");
+        var v0 = readValue(); if (v0 === "") fail("expected a value after 'named'");
+        return { field: df.key, op: "eq", value: v0, ci: true };
+      }
+      var fld = expectField();
+      var oi = parseOperator();
+      if (!oi.needsValue) return { field: fld.key, op: oi.op };
+      if (!peek() || (peek().t !== "str" && peek().t !== "num" && peek().t !== "word")) fail("expected a value after '" + (oi.raw || oi.op) + "'");
+      var val = readValue();
+      return { field: fld.key, op: oi.op, value: val, ci: !!oi.ci };
+    }
+
+    function parsePrimary() {
+      var p = peek();
+      if (!p) fail("unexpected end of query");
+      if (p.t === "lp") { next(); var nn = parseOr(); var cc = peek(); if (cc && cc.t === "rp") next(); else fail("missing ')'"); return nn; }
+      return parseCmp();
+    }
+    function parseAnd() {
+      var node = parsePrimary();
+      while (peek() && peek().t === "and") { next(); node = { op: "and", l: node, r: parsePrimary() }; }
+      return node;
+    }
+    function parseOr() {
+      var node = parseAnd();
+      while (peek() && peek().t === "or") { next(); node = { op: "or", l: node, r: parseAnd() }; }
+      return node;
+    }
+
+    var tree = parseOr();
+    if (pos < toks.length) { var leftover = toks[pos]; fail("couldn't parse near '" + (leftover.v || leftover.t) + "' — join clauses with 'and' / 'or'."); }
+    return tree;
+  }
+
+  /* evaluate one predicate leaf against a data item */
+  function freeEvalLeaf(model, leaf, item, overrides) {
+    var f = findRootField(model, leaf.field);
+    var v = rqVal(item, f);
+    var op = leaf.op;
+    if (op === "isnull") return f && f.isCollection ? (!Array.isArray(v) || v.length === 0) : rqIsEmpty(v);
+    if (op === "isnotnull") return f && f.isCollection ? (Array.isArray(v) && v.length > 0) : !rqIsEmpty(v);
+    if (op === "starts" || op === "ends" || op === "contains") {
+      var needle = rqStr(leaf.value).toLowerCase();
+      var test = function (h) {
+        h = rqStr(h).toLowerCase();
+        if (op === "starts") return h.indexOf(needle) === 0;
+        if (op === "ends") return needle === "" ? true : h.length >= needle.length && h.indexOf(needle, h.length - needle.length) !== -1;
+        return h.indexOf(needle) !== -1;
+      };
+      if (f && f.isCollection && Array.isArray(v)) return v.some(test);
+      return test(v);
+    }
+    if ((op === "eq" || op === "neq") && f && f.isCollection && Array.isArray(v)) {
+      var nd = rqStr(leaf.value).toLowerCase();
+      var hit = v.some(function (el) { return rqStr(el).toLowerCase() === nd; });
+      return op === "eq" ? hit : !hit;
+    }
+    return rqEvalFilter(model, { field: leaf.field, op: op, value: leaf.value, caseInsensitive: !!leaf.ci }, item, overrides);
+  }
+  function freeEval(model, node, item, overrides) {
+    if (!node) return true;
+    if (node.op === "and") return freeEval(model, node.l, item, overrides) && freeEval(model, node.r, item, overrides);
+    if (node.op === "or") return freeEval(model, node.l, item, overrides) || freeEval(model, node.r, item, overrides);
+    if (node.op === "not") return !freeEval(model, node.l, item, overrides);
+    return freeEvalLeaf(model, node, item, overrides);
+  }
+
+  /* C# for one predicate leaf (no Where/ToList wrapper) */
+  function freeLeafCSharp(model, leaf, overrides) {
+    var f = findRootField(model, leaf.field);
+    var ref = fieldRef(model, leaf.field, overrides);
+    var op = leaf.op;
+    if (op === "isnull") return (f && f.isCollection) ? "(" + countExpr(model, leaf.field, overrides) + ") == 0" : ref + " == null";
+    if (op === "isnotnull") return (f && f.isCollection) ? "(" + countExpr(model, leaf.field, overrides) + ") > 0" : ref + " != null";
+    if (op === "starts" || op === "ends" || op === "contains") {
+      var meth = op === "starts" ? "StartsWith" : op === "ends" ? "EndsWith" : "Contains";
+      if (f && f.isCollection) return enumerableExpr(model, leaf.field, overrides) + ".Any(x => x." + meth + "(" + csString(leaf.value) + ", StringComparison.OrdinalIgnoreCase))";
+      return "(" + ref + " ?? \"\")." + meth + "(" + csString(leaf.value) + ", StringComparison.OrdinalIgnoreCase)";
+    }
+    if ((op === "eq" || op === "neq") && f && f.isCollection) {
+      var inner = enumerableExpr(model, leaf.field, overrides) + ".Any(x => string.Equals(x, " + csString(leaf.value) + ", StringComparison.OrdinalIgnoreCase))";
+      return op === "neq" ? "!(" + inner + ")" : inner;
+    }
+    return filterCmp(model, { field: leaf.field, op: op, value: leaf.value, caseInsensitive: !!leaf.ci }, overrides);
+  }
+  function freeNodeCSharp(model, node, overrides) {
+    if (!node) return "true";
+    if (node.op === "and") return "(" + freeNodeCSharp(model, node.l, overrides) + " && " + freeNodeCSharp(model, node.r, overrides) + ")";
+    if (node.op === "or") return "(" + freeNodeCSharp(model, node.l, overrides) + " || " + freeNodeCSharp(model, node.r, overrides) + ")";
+    if (node.op === "not") return "!(" + freeNodeCSharp(model, node.l, overrides) + ")";
+    return freeLeafCSharp(model, node, overrides);
+  }
+
+  /* Top-level: parse + (run on rows if given) + emit C#. Never throws. Returns
+     { ok:true, predicate, csharp, columns, data } | { ok:false, error }. */
+  function freeQuery(model, text, rows, overrides) {
+    overrides = overrides || {};
+    if (!model || !model.byName) return { ok: false, error: "Infer a model first (paste JSON or CSV)." };
+    var node;
+    try { node = freeParse(text, model); }
+    catch (e) { return { ok: false, error: (e && e.message) ? e.message : "could not parse the query" }; }
+    var body = freeNodeCSharp(model, node, overrides);
+    var csharp = "var result = source\n    .Where(s => " + body + ")\n    .ToList();";
+    var data = null;
+    if (Array.isArray(rows)) {
+      try { data = rows.filter(function (it) { return freeEval(model, node, it, overrides); }); }
+      catch (e2) { return { ok: false, error: "run error: " + ((e2 && e2.message) || e2), csharp: csharp, predicate: body }; }
+    }
+    return { ok: true, node: node, predicate: body, csharp: csharp, columns: rqColumnsForRoot(model), data: data };
+  }
+
+  /* ===================== populated results JSON ===================== */
+  /* Coerce a raw cell to its model type so the exported results file matches
+     what the generated C# would serialize (Signups -> int|null, keeper -> null). */
+  function rqCoerce(model, field, value, overrides) {
+    if (!field) return value === undefined ? null : value;
+    if (field.isCollection) return Array.isArray(value) ? value : (value == null ? (field.nullable ? null : []) : value);
+    if (rqIsEmpty(value)) return null;
+    var base = rootEffectiveBase(model, field, overrides);
+    if (base === "int" || base === "long") { var n = rqNum(value); return n === null ? null : Math.trunc(n); }
+    if (base === "double") { var d = rqNum(value); return d === null ? null : d; }
+    if (base === "bool") { var s = rqStr(value).toLowerCase(); return s === "true" || s === "1" || s === "yes"; }
+    return rqStr(value);
+  }
+  function rqTypedObject(model, item, overrides) {
+    var root = model && model.byName ? model.byName[model.rootClass] : null;
+    if (!root) return item;
+    var o = {};
+    root.fields.forEach(function (f) { o[f.property] = rqCoerce(model, f, rqVal(item, f), overrides); });
+    return o;
+  }
+  var ROOT_ROW_SHAPES = { "filter-equals": 1, "filter-contains": 1, "filter-empty-collection": 1, "filter-nested-any": 1, "sort-by": 1, "top-n": 1, "binary-search": 1 };
+  /* Run every output-flagged query over the data and assemble the results object
+     ({ outputKey: [matching objects], ... }) the C# would write, as pretty JSON.
+     This is what lets the exported output file ship already populated. */
+  function buildResultsJson(model, rows, dataRows, overrides) {
+    overrides = overrides || {};
+    dataRows = Array.isArray(dataRows) ? dataRows : [];
+    var out = {};
+    (rows || []).forEach(function (row) {
+      if (!row || !row.output) return;
+      var key = (row.outputKey && String(row.outputKey).trim()) || row.name;
+      if (!key) return;
+      var r = runQuery(model, row, dataRows, overrides);
+      if (!r || !r.ok) { out[key] = null; return; }
+      if (row.shape === "binary-search") { out[key] = (r.data && r.data[0]) ? rqTypedObject(model, r.data[0], overrides) : null; return; }
+      if (ROOT_ROW_SHAPES[row.shape]) { out[key] = (r.data || []).map(function (it) { return rqTypedObject(model, it, overrides); }); return; }
+      out[key] = r.data || [];   /* group-aggregate / most-frequent / select: plain records */
+    });
+    return JSON.stringify(out, null, 2);
+  }
+
+  /* convenience: the populated results JSON for a preset, in one call */
+  function resultsJsonFromPreset(preset) {
+    var parsed = parseSample(preset.sample, { classNames: preset.classNames, rootClass: preset.rootClass, allNullable: preset.allNullable !== false });
+    if (!parsed.ok) return { ok: false, error: parsed.error };
+    var ex = extractRows(preset.sample);
+    if (!ex.ok) return { ok: false, error: ex.error };
+    return { ok: true, json: buildResultsJson(parsed.model, preset.rows, ex.rows, preset.overrides || {}) };
+  }
+
+  /* ===================== exam presets (the three pasted problems) ===================== */
+
+  var WORKSHOPS_CSV = [
+    "Id,Title,Tag,Signups,Instructor,Room",
+    '1,"Soldering Basics, Part 1",Electronics,12,Ada Lovelace,Lab A',
+    "2,Intro to Woodturning,Woodworking,8,Grace Hopper,Workshop 1",
+    "3,Lathe Safety,Woodworking,,,Workshop 1",
+    "4,Laser Cut Coasters,LaserCutting,20,Alan Turing,Lab B",
+    "5,Cabinet Joinery,Woodworking,15,,Workshop 2",
+    "6,3D Print Your First Model,3DPrinting,,Katherine Johnson,Lab A",
+    "7,TIG Welding,Metalworking,5,Nikola Tesla,Forge",
+    '8,"Resin Casting, Intro",3DPrinting,9,,Lab A',
+    "9,Hand-Cut Dovetails,Woodworking,18,Grace Hopper,Workshop 1",
+  ].join("\n");
+
+  function workshopsPreset() {
+    return {
+      name: "Workshops (CSV)",
+      sample: WORKSHOPS_CSV,
+      inputFile: "workshops.csv",
+      outputFile: "Problem_4_Query_Results.json",
+      namespace: "WorkshopQueries",
+      rootClass: "Workshop",
+      classNames: {},
+      overrides: {},
+      rows: [
+        { shape: "filter-equals", field: "Tag", op: "eq", value: "Woodworking", name: "woodworking", label: "Woodworking workshops", print: true, output: true, outputKey: "woodworkingWorkshops" },
+        { shape: "filter-equals", field: "Instructor", op: "is", name: "noInstructor", label: "no instructor assigned", print: true, output: true, outputKey: "missingInstructor" },
+        { shape: "sort-by", field: "Signups", direction: "desc", nullValue: "0", name: "bySignups", label: "sorted by signups, most first (missing = 0)", print: true, output: true, outputKey: "sortedBySignups" },
+        { shape: "above-average", field: "Signups", excludeNull: true, name: "aboveAvg", label: "above the average signups (known values only)", print: true, output: true, outputKey: "aboveAverageSignups" },
+      ],
+    };
+  }
+
+  var LIGHTHOUSES_JSON = JSON.stringify([
+    { name: "Gannet Stack Light", region: "North Cape", commissionedYear: 1887, flag: false, keeper: "Mara Sundgren", heightMeters: 41.5, homePort: "Gullhaven",
+      inspections: [ { year: 2244, inspector: "P. Holt", passed: true, rating: 4 }, { year: 2245, inspector: "R. Vance", passed: true, rating: 5 } ] },
+    { name: "Saltmarsh Beacon", region: "South Reach", commissionedYear: 1902, flag: true, keeper: null, heightMeters: 28.0, homePort: "Gullhaven",
+      inspections: [ { year: 2245, inspector: "P. Holt", passed: false, rating: 2 } ] },
+    { name: "Dawnreef Tower", region: "West Banks", commissionedYear: 1875, flag: true, heightMeters: 53.2, homePort: "Tern Harbor",
+      inspections: [ { year: 2240, inspector: "S. Okafor", passed: true, rating: 3 }, { year: 2242, inspector: "S. Okafor", passed: true, rating: 4 }, { year: 2245, inspector: "R. Vance", passed: true, rating: 5 } ] },
+    { name: "Lowtide Marker", region: "North Cape", commissionedYear: 1990, flag: true, heightMeters: 0.0, homePort: "Gullhaven", inspections: [] },
+    { name: "Cormorant Point", region: "South Reach", commissionedYear: 1860, flag: false, keeper: "Idris Vale", heightMeters: 36.7, homePort: "Tern Harbor",
+      inspections: [ { year: 2243, inspector: "P. Holt", passed: true, rating: 4 } ] },
+  ], null, 2);
+
+  function lighthousesPreset() {
+    return {
+      name: "Lighthouses (JSON)",
+      sample: LIGHTHOUSES_JSON,
+      inputFile: "lighthouses.json",
+      outputFile: "Problem_4_Query_Results.json",
+      namespace: "LighthouseQueries",
+      classNames: { "Item": "Lighthouse", "Inspections": "Inspection" },
+      overrides: {},
+      rows: [
+        { shape: "filter-equals", field: "flag", op: "eq", value: "true", name: "automated", label: "automated lighthouses (flag == true)", print: true, output: true, outputKey: "automated" },
+        { shape: "filter-equals", field: "keeper", op: "is", name: "unkept", label: "no keeper (null or missing)", print: true, output: true, outputKey: "unkept" },
+        { shape: "sort-by", field: "inspections", byCount: true, direction: "desc", name: "byInspections", label: "sorted by inspection count, most first", print: true, output: true, outputKey: "sortedByInspectionCount" },
+        { shape: "group-aggregate", field: "region", aggregate: "Average", subField: "inspections", subCount: true, sort: "keyAsc", name: "avgPerRegion", label: "average inspections per lighthouse, by region", print: true, output: true, outputKey: "averageInspectionsPerRegion" },
+        { shape: "filter-nested-any", collection: "inspections", subField: "year", match: "equals", value: "2245", andWhere: { field: "homePort", value: "Gullhaven", op: "equals" }, name: "gullhaven2245", label: "Gullhaven home port with a 2245 inspection", print: true, output: true, outputKey: "gullhaven2245" },
+        { shape: "binary-search", field: "name", value: "Gannet Stack Light", name: "search", label: "binary search by name for Gannet Stack Light", print: true, output: false },
+      ],
+    };
+  }
+
+  var COMICS_JSON = JSON.stringify([
+    { title: "Iron Vigil #1", author: "Mara Stone", releaseYear: 1998 },
+    { title: "Iron Vigil #2", author: "Mara Stone", releaseYear: 1999 },
+    { title: "Night Harbor", author: "Lou Park", releaseYear: 1999 },
+    { title: "Quantum Lass", author: "Mara Stone", releaseYear: 2001 },
+    { title: "Quantum Lass: Returns", author: "Mara Stone", releaseYear: 2001 },
+    { title: "Deep Field", author: "Lou Park", releaseYear: 2001 },
+    { title: "Solar Wake", author: "Ines Roy", releaseYear: 2024 },
+    { title: "Tin Saints", author: "Lou Park", releaseYear: 1995 },
+  ], null, 2);
+
+  function comicsPreset() {
+    return {
+      name: "Comics (JSON)",
+      sample: COMICS_JSON,
+      inputFile: "comics.json",
+      outputFile: "Problem_3_Query_Results.json",
+      namespace: "ComicQueries",
+      classNames: { "Item": "Comic" },
+      overrides: {},
+      rows: [
+        { shape: "filter-equals", field: "releaseYear", op: "lt", value: "2000", name: "before2000", label: "released before 2000", print: true, output: true, outputKey: "releasedBefore2000" },
+        { shape: "group-aggregate", field: "author", aggregate: "Count", sort: "valueDesc", name: "perAuthor", label: "comics per author, most first", print: true, output: true, outputKey: "comicsPerAuthor" },
+        { shape: "most-frequent-per-group", field: "releaseYear", subField: "author", direction: "desc", name: "topAuthorPerYear", label: "most active author per year (ordered by year)", print: true, output: true, outputKey: "mostActiveAuthorPerYear" },
+      ],
+    };
+  }
+
   /* ===================== export ===================== */
 
   var CORE = {
@@ -1927,10 +2358,20 @@
     extractRows: extractRows,
     /* presets */
     presets: presets,
+    presetByKey: presetByKey,
     summerPreset: summerPreset,
     reexamPreset: reexamPreset,
+    workshopsPreset: workshopsPreset,
+    lighthousesPreset: lighthousesPreset,
+    comicsPreset: comicsPreset,
     generateFromPreset: generateFromPreset,
     generateSubmissionFromPreset: generateSubmissionFromPreset,
+    /* free-text (plain-English) query */
+    freeQuery: freeQuery,
+    resolveFreeField: resolveFreeField,
+    /* populated results JSON for the export bundle */
+    buildResultsJson: buildResultsJson,
+    resultsJsonFromPreset: resultsJsonFromPreset,
     /* small helpers exposed for the UI + tests */
     pascal: pascal,
     singular: singular,

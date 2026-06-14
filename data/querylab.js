@@ -85,6 +85,7 @@ let model = null;     // last inferred model (or null)
 let parseError = null;
 let lastCode = "";
 let runResults = null;   // last in-app run output (or null = not run yet)
+let freeResult = null;   // last plain-English query result (or null = not run yet)
 let saveTimer = null;
 let genTimer = null;
 let rowSeq = 1;
@@ -118,6 +119,12 @@ function defaultState() {
     projectName: "QueryConsole",
     rows: [],
     overrides: {},
+    /* preset class-naming carried into recompute() so a loaded preset's model
+       gets its exam names (Lighthouse / Comic) instead of the generic "Item". */
+    classNames: {},
+    rootClass: "",
+    /* the plain-English query box text (persisted so it survives a revisit) */
+    freeText: "",
   };
 }
 
@@ -138,6 +145,9 @@ function migrateState(raw) {
   if (typeof src.projectName === "string" && src.projectName.trim()) d.projectName = src.projectName;
   if (Array.isArray(src.rows)) d.rows = src.rows.filter(function (r) { return r && typeof r === "object"; });
   if (src.overrides && typeof src.overrides === "object") d.overrides = src.overrides;
+  if (src.classNames && typeof src.classNames === "object") d.classNames = src.classNames;
+  if (typeof src.rootClass === "string") d.rootClass = src.rootClass;
+  if (typeof src.freeText === "string") d.freeText = src.freeText;
   return d;
 }
 
@@ -180,15 +190,20 @@ function recompute() {
   const C = core();
   if (!C) { parseError = "query-lab core not loaded"; model = null; return; }
   if (!state.json || !state.json.trim()) { model = null; parseError = null; return; }
-  const r = C.parseSample(state.json, { allNullable: true });
+  /* a loaded preset supplies its exam class names + root name; user-pasted JSON
+     leaves these empty, so inference behaviour stays byte-stable for that path. */
+  const baseOpts = { allNullable: true };
+  if (state.rootClass) baseOpts.rootClass = state.rootClass;
+  if (state.classNames && Object.keys(state.classNames).length) baseOpts.classNames = state.classNames;
+  const r = C.parseSample(state.json, baseOpts);
   if (!r.ok) { model = null; parseError = r.error; return; }
   /* CSV mode: give the inferred class a sensible singular name from the input
-     file (products.csv -> Product), only when the user has named a .csv input
-     file. JSON inference is left exactly as-is so its behaviour stays byte-stable. */
-  if (r.model && r.model.csvMode) {
+     file (products.csv -> Product), only when the user has not pinned a root
+     class via a preset. JSON inference is left exactly as-is otherwise. */
+  if (r.model && r.model.csvMode && !state.rootClass) {
     const stem = csvClassFromInput(state.inputFile);
     if (stem && stem !== r.model.rootClass) {
-      const r2 = C.parseSample(state.json, { allNullable: true, classNames: { Row: stem } });
+      const r2 = C.parseSample(state.json, Object.assign({}, baseOpts, { classNames: Object.assign({ Row: stem }, state.classNames || {}) }));
       if (r2.ok && r2.model.csvMode) { model = r2.model; parseError = null; return; }
     }
   }
@@ -233,6 +248,7 @@ function regenerate() {
   /* the data or queries changed — last run is stale, clear the results panel
      so the user re-runs against the current state rather than reading old rows */
   runResults = null;
+  freeResult = null;
   if (!model) { lastCode = ""; paintModels(); paintOutput(); paintRun(); return; }
   try {
     lastCode = C.generateProgram(model, state.rows, {
@@ -248,6 +264,7 @@ function regenerate() {
   paintRows();
   paintOutput();
   paintRun();
+  paintFreeWrap();
 }
 function scheduleRegen() { clearTimeout(genTimer); genTimer = setTimeout(regenerate, 350); }
 
@@ -277,8 +294,9 @@ function render() {
   h += '<div class="ql-models" id="ql-models">' + modelsHTML() + "</div>";
   h += "</div>";
 
-  /* RIGHT pane: query rows + output options + generated code */
+  /* RIGHT pane: free-text query + query rows + output options + generated code */
   h += '<div class="ql-right">';
+  h += '<div class="ql-free-wrap" id="ql-free-wrap">' + freeHTML() + "</div>";
   h += '<div class="ql-rows-head"><span>Queries</span>'
     + '<button class="ql-run-btn" title="run every query against the pasted data and show the results" onclick="QL.runQueries()">▶ Run on data</button>'
     + '<button class="ql-add" onclick="QL.addQuery()">+ add query</button></div>';
@@ -298,6 +316,9 @@ function toolbarHTML() {
   let h = '<div class="ql-toolbar">';
   h += '<button class="ql-btn" title="load the verified Summer 2025 spaceships solution" onclick="QL.loadPreset(\'summer\')">▣ Summer spaceships</button>';
   h += '<button class="ql-btn" title="load the verified ReExam 2025 recipes solution" onclick="QL.loadPreset(\'reexam\')">▣ ReExam recipes</button>';
+  h += '<button class="ql-btn" title="LINQ over CSV: Woodworking / no-instructor / sort by signups / above-average" onclick="QL.loadPreset(\'workshops\')">▣ Workshops (CSV)</button>';
+  h += '<button class="ql-btn" title="JSON + nested inspections: automated / unkept / by inspection count / avg per region / Gullhaven 2245 / binary search" onclick="QL.loadPreset(\'lighthouses\')">▣ Lighthouses</button>';
+  h += '<button class="ql-btn" title="JSON: before 2000 / comics per author / most active author per year" onclick="QL.loadPreset(\'comics\')">▣ Comics</button>';
   h += '<span class="ql-tb-sep"></span>';
   h += '<button class="ql-btn" title="clear the JSON and all query rows" onclick="QL.clearAll()">✕ Clear</button>';
   h += '<span class="ql-msg" id="ql-status"></span>';
@@ -323,8 +344,11 @@ function modelsHTML() {
     e += '<li><b>Add query rows</b> on the right and pick fields from the inferred model.</li>';
     e += '<li><b>Copy</b> the Program.cs or <b>Export project (.zip)</b> to run it, then <b>Download submission files</b> for the two hand-in files Problem_4_Program.cs + Problem_4_Models.cs.</li>';
     e += '</ol>';
-    e += '<div class="ql-start-or">or load a verified 2025 solution:</div>';
+    e += '<div class="ql-start-or">or load a ready-made dataset + queries:</div>';
     e += '<div class="ql-start-presets">';
+    e += '<button class="ql-btn" onclick="QL.loadPreset(\'workshops\')">▣ Workshops (CSV)</button>';
+    e += '<button class="ql-btn" onclick="QL.loadPreset(\'lighthouses\')">▣ Lighthouses (JSON)</button>';
+    e += '<button class="ql-btn" onclick="QL.loadPreset(\'comics\')">▣ Comics (JSON)</button>';
     e += '<button class="ql-btn" onclick="QL.loadPreset(\'summer\')">▣ Summer spaceships</button>';
     e += '<button class="ql-btn" onclick="QL.loadPreset(\'reexam\')">▣ ReExam recipes</button>';
     e += '</div>';
@@ -564,6 +588,82 @@ function checkbox(i, prop, on, label) {
 }
 
 /* ---------------- in-app runner: execute the queries against the data ---------------- */
+/* ---------------- plain-English (free-text) query ---------------- */
+/* Build one runnable example from the live model so the placeholder always
+   matches the loaded data's actual fields. */
+function freeExampleText() {
+  const fs = scalarFields();
+  const strF = fs.filter(function (f) { return /string/.test(f.baseType); })[0];
+  const numF = fs.filter(function (f) { return /int|double|long/.test(f.baseType); })[0];
+  if (strF && numF) return numF.property.toLowerCase() + " > 0 and " + strF.property.toLowerCase() + " contains a";
+  if (strF) return strF.property.toLowerCase() + " starts with a";
+  if (numF) return numF.property.toLowerCase() + " >= 0";
+  return "name starts with a";
+}
+function freeHTML() {
+  const example = model ? freeExampleText() : "released after 2023 and name starts with rtx";
+  let h = '<div class="ql-free">';
+  h += '<div class="ql-free-head">Ask in plain English <span>and / or, &gt; &lt; after before, starts/ends/contains, is null — runs on your data and shows the C#</span></div>';
+  h += '<div class="ql-free-row">';
+  h += '<input class="ql-free-in" id="ql-free-in" spellcheck="false" autocomplete="off" placeholder="' + esc(example) + '" value="' + esc(state ? (state.freeText || "") : "") + '" oninput="QL.setFree(this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();QL.runFree();}">';
+  h += '<button class="ql-free-btn" onclick="QL.runFree()">▶ Run</button>';
+  h += "</div>";
+  if (model) {
+    const fields = scalarFields().concat(collectionFields()).map(function (f) { return f.property; });
+    if (fields.length) h += '<div class="ql-free-fields">fields: ' + fields.map(function (p) { return '<button class="ql-free-fchip" title="insert this field name" onclick="QL.insertField(\'' + jsq(p) + '\')">' + esc(p) + "</button>"; }).join("") + "</div>";
+  }
+  h += '<div class="ql-free-out" id="ql-free-out">' + freeResultHTML() + "</div>";
+  h += "</div>";
+  return h;
+}
+function freeResultHTML() {
+  const r = freeResult;
+  if (!r) return "";
+  if (!r.ok) return '<div class="ql-run-err">' + esc(r.error || "could not run") + "</div>" +
+    (r.csharp ? '<pre class="ql-free-cs">' + hiCS(r.csharp) + "</pre>" : "");
+  let h = "";
+  h += '<pre class="ql-free-cs">' + hiCS(r.csharp || "") + "</pre>";
+  const data = r.data || [];
+  const cols = r.columns || [];
+  h += '<div class="ql-run-count">' + data.length + " result" + (data.length === 1 ? "" : "s") + "</div>";
+  if (!data.length) return h + '<div class="ql-run-empty">no rows matched</div>';
+  const MAX = 50;
+  h += '<div class="ql-table-wrap"><table class="ql-table"><thead><tr>';
+  cols.forEach(function (c) { h += "<th>" + esc(c.label) + "</th>"; });
+  h += "</tr></thead><tbody>";
+  data.slice(0, MAX).forEach(function (row) {
+    h += "<tr>";
+    cols.forEach(function (c) { h += "<td>" + fmtCell(row[c.key]) + "</td>"; });
+    h += "</tr>";
+  });
+  h += "</tbody></table></div>";
+  if (data.length > MAX) h += '<div class="ql-run-more">… ' + (data.length - MAX) + " more</div>";
+  return h;
+}
+function paintFree() { paint("ql-free-out", freeResultHTML()); }
+function setFree(value) { ensureState(); state.freeText = value; scheduleSave(); }
+function insertField(prop) {
+  ensureState();
+  const inp = byId("ql-free-in");
+  const cur = inp ? inp.value : (state.freeText || "");
+  const next = (cur && !/\s$/.test(cur)) ? cur + " " + prop + " " : cur + prop + " ";
+  state.freeText = next;
+  if (inp) { inp.value = next; inp.focus(); }
+  scheduleSave();
+}
+function runFree() {
+  ensureState();
+  const C = core();
+  if (!C || !model) { freeResult = { ok: false, error: "Paste JSON or CSV (or load a preset) first." }; paintFree(); return; }
+  const text = (byId("ql-free-in") ? byId("ql-free-in").value : state.freeText) || "";
+  state.freeText = text;
+  const ex = C.extractRows(state.json);
+  if (!ex.ok) { freeResult = { ok: false, error: ex.error }; paintFree(); return; }
+  freeResult = C.freeQuery(model, text, ex.rows, state.overrides || {});
+  saveState();
+  paintFree();
+}
+
 function runQueries() {
   const C = core();
   runResults = null;
@@ -670,6 +770,7 @@ function hasProjzip() {
 /* ---------------- repaint helpers ---------------- */
 function paintModels() { paint("ql-models", modelsHTML()); }
 function paintRows() { paint("ql-rows", rowsHTML()); }
+function paintFreeWrap() { paint("ql-free-wrap", freeHTML()); }
 function paintOptions() { paint("ql-opts", optionsHTML()); }
 function paintOutput() { paint("ql-output", outputHTML()); }
 
@@ -688,12 +789,16 @@ function setJson(value) {
 function loadPreset(which) {
   ensureState();
   const C = core();
-  const preset = which === "reexam" ? C.reexamPreset() : C.summerPreset();
+  const preset = (typeof C.presetByKey === "function" && C.presetByKey(which)) ||
+    (which === "reexam" ? C.reexamPreset() : C.summerPreset());
   state.json = preset.sample;
   state.inputFile = preset.inputFile;
   state.outputFile = preset.outputFile;
   state.namespace = preset.namespace;
   state.overrides = Object.assign({}, preset.overrides || {});
+  state.classNames = Object.assign({}, preset.classNames || {});
+  state.rootClass = preset.rootClass || "";
+  freeResult = null;
   /* deep-copy rows + ensure ids/names */
   rowSeq = 1;
   state.rows = (preset.rows || []).map(function (r) {
@@ -809,17 +914,21 @@ function exportProject(btn) {
   ensureState();
   if (!hasProjzip()) { setStatus("project export unavailable (zip core not loaded)"); return; }
   if (!model) { setStatus("paste JSON or load a preset before exporting"); return; }
+  const C = core();
   const Z = global.PROJZIP;
   const projName = (state.projectName && state.projectName.trim()) || "QueryConsole";
   const dataName = (state.inputFile && state.inputFile.trim()) || "data.json";
-  /* the sample JSON the user pasted is the data file the generated code reads */
+  const outName = (state.outputFile && state.outputFile.trim()) || "Problem_4_Query_Results.json";
+  /* the sample the user pasted is the input the generated code reads */
   const sample = state.json != null ? state.json : "";
+  /* pre-populate the output file by running the queries here, so the zip already
+     contains a filled-in results JSON (dotnet run regenerates it identically). */
+  const resultsJson = buildResults();
+  const dataFiles = [{ path: dataName, text: sample }];
+  if (resultsJson != null) dataFiles.push({ path: outName, text: resultsJson });
   let entries, url;
   try {
-    entries = Z.consoleProject(projName, {
-      programCs: lastCode,
-      dataFiles: [{ path: dataName, text: sample }],
-    });
+    entries = Z.consoleProject(projName, { programCs: lastCode, dataFiles: dataFiles });
     url = Z.makeZipBlobUrl(entries);
   } catch (e) {
     setStatus("export failed: " + (e && e.message));
@@ -828,7 +937,22 @@ function exportProject(btn) {
   const fileName = Z.sanitizeName(projName, "QueryConsole") + ".zip";
   triggerDownload(url, fileName);
   flashButton(btn, "exported ✓");
-  setStatus("exported " + fileName + ". Unzip, cd into the folder, then: dotnet run (reads " + dataName + ")");
+  setStatus("exported " + fileName + " (" + dataName + " + Program.cs" +
+    (resultsJson != null ? " + populated " + outName : "") + "). Unzip, then: dotnet run");
+}
+
+/* Run the output-flagged queries over the pasted data and return the populated
+   results JSON (the exam's output file, already filled in), or null when there is
+   nothing to run / the data can't be read. Shared by both export paths. */
+function buildResults() {
+  const C = core();
+  if (!C || !model || typeof C.buildResultsJson !== "function") return null;
+  if (!state.rows || !state.rows.some(function (r) { return r && r.output; })) return null;
+  const ex = C.extractRows(state.json);
+  if (!ex.ok) return null;
+  try {
+    return C.buildResultsJson(model, state.rows, ex.rows, state.overrides || {});
+  } catch (e) { return null; }
 }
 
 /* ---------------- download the two-file submission pair (spec 16) ---------------- */
@@ -854,10 +978,21 @@ function downloadSubmission(btn) {
     setStatus("submission build failed: " + (e && e.message));
     return;
   }
-  downloadText("Problem_4_Program.cs", files.program);
-  downloadText("Problem_4_Models.cs", files.models);
+  /* the full submission set: the original input data, the two logic files, and
+     the already-populated output results JSON (when there is an output query). */
+  const inName = (state.inputFile && state.inputFile.trim()) || "data.json";
+  const outName = (state.outputFile && state.outputFile.trim()) || "Problem_4_Query_Results.json";
+  const resultsJson = buildResults();
+  const drops = [
+    { name: inName, text: state.json || "" },
+    { name: "Problem_4_Program.cs", text: files.program },
+    { name: "Problem_4_Models.cs", text: files.models },
+  ];
+  if (resultsJson != null) drops.push({ name: outName, text: resultsJson });
+  drops.forEach(function (d) { downloadText(d.name, d.text); });
   flashButton(btn, "downloaded ✓");
-  setStatus("downloaded Problem_4_Program.cs + Problem_4_Models.cs. Drop both into the flat submission folder");
+  setStatus("downloaded " + drops.map(function (d) { return d.name; }).join(" + ") +
+    ". Drop them into the flat submission folder" + (resultsJson == null ? " (add a query with output on to also get the results JSON)" : ""));
 }
 
 /* file:// safe plain-text download via a blob anchor (no zip dependency). */
@@ -944,6 +1079,9 @@ const QL = {
   exportProject: exportProject,
   downloadSubmission: downloadSubmission,
   runQueries: runQueries,
+  setFree: setFree,
+  runFree: runFree,
+  insertField: insertField,
 };
 
 const QUERYLAB = { render: render, init: init, outputHTML: outputHTML };

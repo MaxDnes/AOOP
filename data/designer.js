@@ -391,10 +391,13 @@
     const pp = parent ? (parent.props || {}) : {};
     const iw = (parent && parent.type === "WrapPanel") ? pp.ItemWidth : null;
     const ih = (parent && parent.type === "WrapPanel") ? pp.ItemHeight : null;
-    if (p.Width != null && p.Width !== "") s += "width:" + num(p.Width) + "px;";
-    else if (iw != null && iw !== "") s += "width:" + num(iw) + "px;";
-    if (p.Height != null && p.Height !== "") s += "height:" + num(p.Height) + "px;";
-    else if (ih != null && ih !== "") s += "height:" + num(ih) + "px;";
+    /* Line/Polygon are sized by their geometry (points), not Width/Height — applying
+       Width/Height here is what made a resized line a tiny diagonal in a big box. */
+    const geomSized = node.type === "Line" || node.type === "Polygon";
+    if (!geomSized && p.Width != null && p.Width !== "") s += "width:" + num(p.Width) + "px;";
+    else if (!geomSized && iw != null && iw !== "") s += "width:" + num(iw) + "px;";
+    if (!geomSized && p.Height != null && p.Height !== "") s += "height:" + num(p.Height) + "px;";
+    else if (!geomSized && ih != null && ih !== "") s += "height:" + num(ih) + "px;";
     if (p.Margin != null && p.Margin !== "") s += "margin:" + cssThickness(p.Margin) + ";";
     if (def.group !== "Shapes" && p.Background) s += "background:" + cssColor(p.Background) + ";";
     if (p.Foreground) s += "color:" + cssColor(p.Foreground) + ";";
@@ -419,13 +422,31 @@
       const a = horiz ? p.VerticalAlignment : p.HorizontalAlignment;
       if (map[a]) s += "align-self:" + map[a] + ";";
     }
+    /* universal rotation (degrees) around the element's centre, mirroring the
+       RenderTransform the codegen emits. */
+    const rot = Number(p.Rotation);
+    if (isFinite(rot) && rot !== 0) s += "transform:rotate(" + rot + "deg);transform-origin:center center;";
     return s;
   }
 
+  /* tight bounding box of a set of points, padded. Returns the min corner too, so
+     callers can translate the geometry into a box that HUGS it (a line from
+     (40,160)-(330,250) gets a 290x90 box, not a 330x250 one with the line stuck in
+     a corner). pad surrounds the geometry on all sides. */
   function svgBounds(pairs, pad) {
-    let mx = 0, my = 0;
-    pairs.forEach(function (pt) { mx = Math.max(mx, pt[0]); my = Math.max(my, pt[1]); });
-    return { w: Math.ceil(mx + pad), h: Math.ceil(my + pad) };
+    pad = pad || 0;
+    if (!pairs || !pairs.length) return { minX: 0, minY: 0, w: pad || 1, h: pad || 1 };
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    pairs.forEach(function (pt) {
+      minX = Math.min(minX, pt[0]); minY = Math.min(minY, pt[1]);
+      maxX = Math.max(maxX, pt[0]); maxY = Math.max(maxY, pt[1]);
+    });
+    const half = pad / 2;
+    return {
+      minX: minX - half, minY: minY - half,
+      w: Math.max(1, Math.ceil(maxX - minX + pad)),
+      h: Math.max(1, Math.ceil(maxY - minY + pad)),
+    };
   }
   function parsePoint(s) {
     const m = String(s == null ? "" : s).split(",").map(function (x) { return parseFloat(x); });
@@ -472,6 +493,10 @@
   function canResize(node) {
     const def = CORE.CATALOG[node.type];
     if (!def) return false;
+    /* Line/Polygon are defined by their points, not Width/Height — showing resize
+       grips there just sets inert size props and leaves the shape unchanged (the
+       "broken line" bug). Edit their geometry (StartPoint/EndPoint/Points) instead. */
+    if (node.type === "Line" || node.type === "Polygon") return false;
     const names = (def.props || []).map(function (pp) { return pp.name; });
     return names.indexOf("Width") !== -1 && names.indexOf("Height") !== -1;
   }
@@ -630,19 +655,24 @@
       inner = chips(node, ["Fill"]);
     } else if (node.type === "Line") {
       const a = parsePoint(p.StartPoint), z = parsePoint(p.EndPoint);
-      const tw = num(p.StrokeThickness, 1);
-      const bb = svgBounds([a, z], tw + 1);
-      inner = '<svg width="' + bb.w + '" height="' + bb.h + '"><line x1="' + a[0] + '" y1="' + a[1]
-        + '" x2="' + z[0] + '" y2="' + z[1] + '" stroke="' + escH(cssColor(p.Stroke) || "#1b1b1b")
-        + '" stroke-width="' + tw + '"/></svg>';
+      const tw = num(p.StrokeThickness, 2);
+      const bb = svgBounds([a, z], tw + 2);
+      /* draw in the box's LOCAL space so the line spans the box corner-to-corner
+         instead of sitting in one corner of an oversized SVG (the old bug). */
+      inner = '<svg width="' + bb.w + '" height="' + bb.h + '" style="display:block;overflow:visible">'
+        + '<line x1="' + (a[0] - bb.minX) + '" y1="' + (a[1] - bb.minY)
+        + '" x2="' + (z[0] - bb.minX) + '" y2="' + (z[1] - bb.minY)
+        + '" stroke="' + escH(cssColor(p.Stroke) || "#1b1b1b")
+        + '" stroke-width="' + tw + '" stroke-linecap="round"/></svg>';
     } else if (node.type === "Polygon") {
-      const pts = String(p.Points || "").trim();
-      const pairs = pts.split(/\s+/).map(parsePoint);
-      const tw = num(p.StrokeThickness, 1);
-      const bb = svgBounds(pairs.length ? pairs : [[80, 40]], tw + 1);
+      const pairs = String(p.Points || "").trim().split(/\s+/).filter(Boolean).map(parsePoint);
+      const pts = pairs.length ? pairs : [[80, 0], [80, 40], [0, 40]];
+      const tw = num(p.StrokeThickness, 2);
+      const bb = svgBounds(pts, tw + 2);
+      const local = pts.map(function (pt) { return (pt[0] - bb.minX) + "," + (pt[1] - bb.minY); }).join(" ");
       const fill = cssColor(p.Fill) || (p.Stroke ? "none" : "#9aa7b8");
-      inner = '<svg width="' + bb.w + '" height="' + bb.h + '"><polygon points="' + escH(pts)
-        + '" fill="' + escH(fill) + '"'
+      inner = '<svg width="' + bb.w + '" height="' + bb.h + '" style="display:block;overflow:visible">'
+        + '<polygon points="' + escH(local) + '" fill="' + escH(fill) + '"'
         + (p.Stroke ? ' stroke="' + escH(cssColor(p.Stroke)) + '" stroke-width="' + tw + '"' : "")
         + "/></svg>" + chips(node, ["Fill"]);
     } else if (node.type === "Path") {
@@ -658,19 +688,27 @@
 
     const isSel = !!(selId && node.id === selId);
     const onCanvas = parent && parent.type === "Canvas";
-    let cls = "pv pv-" + node.type + (isSel ? " sel" : "");
+    const locked = !!node.locked;
+    let cls = "pv pv-" + node.type + (isSel ? " sel" : "") + (locked ? " locked" : "");
     if (onCanvas) cls += " pv-oncanvas";
-    /* resize grips appear on the selected element when it can carry Width/Height;
-       a center move handle (drag to set Margin) appears on any selected element */
+    /* resize grips + a center move handle appear on the selected element — UNLESS it
+       is locked, in which case only the lock toggle shows so it can't be moved by
+       accident. The lock toggle is always offered on a selected non-root element. */
     let grips = "";
     if (isSel) {
-      if (canResize(node)) grips += gripsHTML();
-      grips += '<span class="dsg-move" data-grip="move" title="drag to move (sets Margin)">'
-        + '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">'
-        + '<path fill="currentColor" d="M8 0 L5.5 2.5 H7 V7 H2.5 V5.5 L0 8 L2.5 10.5 V9 H7 V13.5 H5.5 L8 16 '
-        + 'L10.5 13.5 H9 V9 H13.5 V10.5 L16 8 L13.5 5.5 V7 H9 V2.5 H10.5 Z"/></svg></span>';
+      if (!locked) {
+        if (canResize(node)) grips += gripsHTML();
+        grips += '<span class="dsg-move" data-grip="move" title="drag to move (sets Margin)">'
+          + '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">'
+          + '<path fill="currentColor" d="M8 0 L5.5 2.5 H7 V7 H2.5 V5.5 L0 8 L2.5 10.5 V9 H7 V13.5 H5.5 L8 16 '
+          + 'L10.5 13.5 H9 V9 H13.5 V10.5 L16 8 L13.5 5.5 V7 H9 V2.5 H10.5 Z"/></svg></span>';
+      }
+      grips += '<span class="dsg-lock' + (locked ? " on" : "") + '" data-lock="1"'
+        + ' onclick="DSG.toggleLock(\'' + escH(node.id) + '\')"'
+        + ' title="' + (locked ? "Locked — click to unlock (no accidental move/resize)" : "Lock position &amp; size so it can't be moved by accident") + '">'
+        + (locked ? "🔒" : "🔓") + "</span>";
     }
-    return '<div class="' + cls + '" data-id="' + escH(node.id) + '" draggable="true"'
+    return '<div class="' + cls + '" data-id="' + escH(node.id) + '" draggable="' + (locked ? "false" : "true") + '"'
       + (style ? ' style="' + escH(style) + '"' : "") + ">" + inner + grips + "</div>";
   }
 
@@ -714,6 +752,8 @@
       + '<button class="dsg-btn" title="download this design as JSON" onclick="DSG.exportDesigns()">⭳ Export</button>'
       + '<button class="dsg-btn" title="import designs from a JSON file" onclick="DSG.importDesigns()">⭱ Import</button>'
       + '<input type="file" id="dsg-import-file" accept="application/json,.json" style="display:none" onchange="DSG.onImportFile(this)">'
+      + '<span class="dsg-tb-sep"></span>'
+      + sizeLockHTML()
       + exportProjectHTML()
       + submissionHTML()
       + '<span class="dsg-tb-sep"></span>'
@@ -746,6 +786,16 @@
     const cur = (el.value || "").trim();
     if (cur === "" || cur === lastProjDefault) el.value = next;
     lastProjDefault = next;
+  }
+
+  /* "Size locked" toolbar checkbox (default ON): locks the exported/submitted
+     Window to its design size (CanResize="False") so the running app keeps the
+     exact layout you see here. Unchecking it lets the window be resized. */
+  function sizeLockHTML() {
+    const locked = tree.props.SizeLocked !== false;
+    return '<label class="dsg-sizelock" title="Lock the window to its design size so the exported app can\'t be resized (keeps the running layout matching this preview). Uncheck to allow resizing.">'
+      + '<input type="checkbox"' + (locked ? " checked" : "") + ' onchange="DSG.toggleSizeLock(this.checked)">'
+      + " Size&nbsp;locked</label>";
   }
 
   /* "Export project (.zip)" toolbar control: a name input + the success-styled
@@ -1115,6 +1165,9 @@
     }
     h += "</div>";
     (def.props || []).forEach(function (p) { h += propRow(node, p, def.defaultProps || {}); });
+    /* rotation applies to any control (RenderTransform), so it lives outside the
+       per-type prop list — degrees, positive = clockwise, around the centre. */
+    if (!isRoot) h += propRow(node, { name: "Rotation", kind: "number" }, {});
     /* honesty hint: in a StackPanel the main-axis alignment is inert (Avalonia
        sizes each child to its own extent there). Show it exactly when the user has
        set that inert axis, and point them at the tool that DOES move it. */
@@ -1432,6 +1485,7 @@
     const node = CORE.findNode(tree, nodeId);
     const parent = CORE.findParent(tree, nodeId);
     if (!node || !parent || parent.type !== "Canvas") return false;
+    if (node.locked) return false;                 // locked: no accidental drags
     const el = document.querySelector('#dsg-canvas .pv[data-id="' + cssEsc(nodeId) + '"]');
     if (!el) return false;
     const cv = document.querySelector('#dsg-canvas .pv[data-id="' + cssEsc(parent.id) + '"]')
@@ -1459,6 +1513,7 @@
   function startMarginMove(nodeId, e) {
     const node = CORE.findNode(tree, nodeId);
     if (!node) return false;
+    if (node.locked) return false;                 // locked: no accidental drags
     const parent = CORE.findParent(tree, nodeId);
     if (parent && parent.type === "Canvas") return false;
     const el = document.querySelector('#dsg-canvas .pv[data-id="' + cssEsc(nodeId) + '"]');
@@ -1480,6 +1535,7 @@
   function startResize(nodeId, handle, e) {
     const node = CORE.findNode(tree, nodeId);
     if (!node) return false;
+    if (node.locked) return false;                 // locked: no accidental resize
     const el = document.querySelector('#dsg-canvas .pv[data-id="' + cssEsc(nodeId) + '"]');
     if (!el) return false;
     const parent = CORE.findParent(tree, nodeId);
@@ -1604,6 +1660,8 @@
   /* mousedown on the stage: grip → resize, Canvas child → move, else let dnd run */
   function onStageMouseDown(e) {
     if (e.button !== 0) return;
+    /* the lock toggle handles itself via onclick — don't start a select/move on it */
+    if (e.target && e.target.closest && e.target.closest(".dsg-lock")) return;
     /* center move handle → drag via Margin (Canvas children fall back to Canvas.Left/Top) */
     const mover = (e.target && e.target.closest) ? e.target.closest(".dsg-move") : null;
     if (mover) {
@@ -1785,6 +1843,27 @@
       if (s && s !== "ExamApp") tree.projectNamespace = s;
       else delete tree.projectNamespace;
       refreshLight();
+    },
+
+    /* lock/unlock the exported window's size (CanResize). Default is locked, so we
+       only store the prop when the user UNLOCKS it; re-locking clears it back to
+       the default. Affects the generated axaml (output panes regenerate). */
+    toggleSizeLock: function (on) {
+      pushUndo(); endCoalesce();
+      if (on) delete tree.props.SizeLocked;   // locked is the default
+      else tree.props.SizeLocked = false;
+      refreshLight();
+    },
+
+    /* lock/unlock a single element so it can't be moved or resized by accident.
+       Designer-only (never exported); persists with the saved design. */
+    toggleLock: function (id) {
+      const node = CORE.findNode(tree, id || selectedId);
+      if (!node || node.id === tree.id) return;     // the root window isn't movable anyway
+      pushUndo(); endCoalesce();
+      if (node.locked) delete node.locked; else node.locked = true;
+      selectedId = node.id;
+      refresh();
     },
 
     setColor: function (name, value) {

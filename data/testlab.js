@@ -70,6 +70,7 @@ let lastError = null;    // {message, excerpt} when generation failed (spec 14)
 let viewModes = {};      // file index -> "edit" | "view"
 let collapsed = {};      // generated fileName -> true when its card is collapsed
 let lastExampleId = null; // id of the worked example currently loaded (for the teaching note)
+let guideOpen = false;   // "How to write each kind of test" panel expanded?
 let saveTimer = null;
 let genTimer = null;
 
@@ -85,6 +86,11 @@ function gallery() { return Array.isArray(global.TESTLAB_EXAMPLES) ? global.TEST
 function exampleById(id) {
   return gallery().filter(function (ex) { return ex && ex.id === id; })[0] || null;
 }
+
+/* per-mode testing guidance (data/testlab-guide.js). Absent if that file did not
+   load: the guide panel hides itself rather than crash. */
+function guide() { return Array.isArray(global.TESTLAB_GUIDE) ? global.TESTLAB_GUIDE : []; }
+function guideByKey(key) { return guide().filter(function (g) { return g && g.key === key; })[0] || null; }
 
 /* the zip/scaffold core, loaded read-only. Absent if projzip-core.js did not
    load (e.g. a changed script order): the export button hides itself rather
@@ -240,13 +246,48 @@ function editorHTML() {
 
 /* ---------------- right pane: mode toggles + output ---------------- */
 function modesHTML() {
-  let h = '<div class="tl-modes">';
+  let h = '<div class="tl-modes-head"><span class="tl-modes-lbl">Test kinds</span>' +
+    '<button class="tl-guide-toggle" onclick="TL.toggleGuide()">' +
+    (guideOpen ? "▾" : "▸") + ' how to write each kind</button></div>';
+  h += '<div class="tl-modes">';
   MODE_DEFS.forEach(function (md) {
     const on = !!state.options[md.key];
-    h += '<label class="tl-mode' + (on ? " on" : "") + '">' +
+    const g = guideByKey(md.key);
+    h += '<label class="tl-mode' + (on ? " on" : "") + '"' +
+      (g && g.what ? ' title="' + esc(g.what) + '"' : "") + ">" +
       '<input type="checkbox"' + (on ? " checked" : "") +
       ' onchange="TL.setMode(\'' + md.key + '\', this.checked)">' +
       "<span>" + esc(md.label) + "</span></label>";
+  });
+  h += "</div>";
+  h += guideHTML();
+  return h;
+}
+
+/* ---------------- right pane: "how to write each kind of test" ---------------- */
+/* A collapsible guide, one card per test kind: what it is, when to reach for it,
+   the exact steps + idiom, and the common trap. The card for a kind that is
+   currently switched on is highlighted so the guidance tracks the output. */
+function guideHTML() {
+  const gs = guide();
+  if (!gs.length || !guideOpen) return "";
+  let h = '<div class="tl-guide" id="tl-guide">';
+  gs.forEach(function (g) {
+    const on = !!(state.options && state.options[g.key]);
+    h += '<div class="tl-guide-card' + (on ? " on" : "") + '">';
+    h += '<div class="tl-guide-h"><span class="tl-guide-name">' + esc(g.label) + "</span>" +
+      (on ? '<span class="tl-guide-badge">on</span>' : '<button class="tl-guide-enable" onclick="TL.setMode(\'' + jsq(g.key) + '\', true)">turn on</button>') +
+      "</div>";
+    h += '<div class="tl-guide-what">' + esc(g.what) + "</div>";
+    h += '<div class="tl-guide-when"><b>When:</b> ' + esc(g.when) + "</div>";
+    if (Array.isArray(g.steps) && g.steps.length) {
+      h += '<ol class="tl-guide-steps">';
+      g.steps.forEach(function (s) { h += "<li>" + esc(s) + "</li>"; });
+      h += "</ol>";
+    }
+    if (g.snippet) h += '<pre class="tl-guide-snip">' + hiFile(g.snippet, "csharp") + "</pre>";
+    if (g.gotcha) h += '<div class="tl-guide-gotcha"><b>Watch out:</b> ' + esc(g.gotcha) + "</div>";
+    h += "</div>";
   });
   h += "</div>";
   return h;
@@ -349,6 +390,61 @@ function summaryHTML() {
   return h;
 }
 
+/* ---------------- right pane: coverage panel ---------------- */
+/* A compact read-out of how complete the generated tests are: how many of the
+   parsed functions are covered, how many asserts are auto-filled vs left as a
+   TODO for the reader, and which test kinds are producing output (with a nudge
+   to switch on a kind that is off). Makes "is my coverage good?" answerable at a
+   glance and points at the next thing to finish. */
+function coverageHTML() {
+  if (!lastFiles || !lastFiles.length) return "";
+  const C = core();
+  /* function coverage (only meaningful when per-function trios are on) */
+  let total = 0, selected = 0;
+  if (C && lastModel) {
+    const fns = C.listAllFunctions(lastModel);
+    total = fns.length;
+    fns.forEach(function (fn) { if (funcSelected(fn.key)) selected++; });
+  }
+  /* count auto-filled asserts vs TODOs across the generated C# test files */
+  let asserts = 0, todos = 0;
+  lastFiles.forEach(function (f) {
+    if (!/\.cs$/.test(f.fileName)) return;
+    const code = String(f.code || "");
+    asserts += (code.match(/\bAssert\./g) || []).length;
+    todos += (code.match(/TODO/g) || []).length;
+  });
+
+  let h = '<div class="tl-cov">';
+  h += '<div class="tl-cov-head">Coverage</div>';
+  h += '<div class="tl-cov-stats">';
+  if (state.options.perFunction && total) {
+    const full = selected === total;
+    h += '<span class="tl-cov-chip' + (full ? " ok" : " warn") + '">' + selected + " / " + total + " functions tested</span>";
+  }
+  h += '<span class="tl-cov-chip">' + lastFiles.length + " file" + (lastFiles.length === 1 ? "" : "s") + "</span>";
+  if (asserts) h += '<span class="tl-cov-chip ok">' + asserts + " assert" + (asserts === 1 ? "" : "s") + " ready</span>";
+  if (todos) h += '<span class="tl-cov-chip warn">' + todos + " TODO to finish</span>";
+  h += "</div>";
+
+  /* which test kinds are producing output, and a nudge for those switched off */
+  h += '<div class="tl-cov-modes">';
+  MODE_DEFS.forEach(function (md) {
+    const on = !!state.options[md.key];
+    const g = guideByKey(md.key);
+    h += '<span class="tl-cov-mode ' + (on ? "on" : "off") + '"' +
+      (g && g.what ? ' title="' + esc(g.what) + '"' : "") + ">" +
+      (on ? "✓ " : "+ ") + esc(md.label) +
+      (on ? "" : '<button class="tl-cov-add" onclick="TL.setMode(\'' + jsq(md.key) + '\', true)">add</button>') +
+      "</span>";
+  });
+  h += "</div>";
+  h += '<div class="tl-cov-tip">Every function gets a Positive, Negative and Edge test. Replace each <span class="tl-todo">TODO</span> with the value you expect to finish coverage' +
+    (guide().length ? '. Open <b>how to write each kind</b> above for the idiom' : "") + ".</div>";
+  h += "</div>";
+  return h;
+}
+
 /* a row of "copy <fn>" chips for each selected function in a per-function file */
 function perFuncCopyHTML(className) {
   const C = core();
@@ -397,6 +493,7 @@ function outputHTML() {
   }
   let h = teachHTML();
   h += summaryHTML();
+  h += coverageHTML();
   h += '<div class="tl-bar"><button class="copybtn" onclick="TL.copyAll(this)">copy all</button></div>';
   /* collapsible cards once there are more than 2 files (spec 14, item 5) */
   const collapsible = lastFiles.length > 2;
@@ -514,6 +611,7 @@ function init() {
 function paintTabs() { paint("tl-tabs", tabsHTML()); }
 function paintEditor() { paint("tl-editor", editorHTML()); }
 function paintModes() { paint("tl-modes", modesHTML()); }
+function toggleGuide() { guideOpen = !guideOpen; paintModes(); }
 function paintPicker() { paint("tl-picker-wrap", pickerHTML()); }
 function paintExport() { paint("tl-export-wrap", exportHTML()); }
 function paintOutput() { paint("tl-output", outputHTML()); }
@@ -833,6 +931,7 @@ const TL = {
   toggleView: toggleView,
   loadExample: loadExample,
   loadGallery: loadGallery,
+  toggleGuide: toggleGuide,
   setMode: setMode,
   setFunc: setFunc,
   allFuncs: allFuncs,

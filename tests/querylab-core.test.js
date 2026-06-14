@@ -649,7 +649,7 @@ test("output card renders the Download submission files button + flat-folder hin
   includes(out, "submit flat: 6 files, no bin/obj, no subfolders", "flat-folder hint present");
 });
 
-test("downloadSubmission emits exactly Problem_4_Program.cs and Problem_4_Models.cs as plain blobs", () => {
+test("downloadSubmission emits the input, both logic files, and the populated output as plain blobs", () => {
   const f = freshUI();
   /* capture every blob anchor download the UI triggers */
   const downloads = [];
@@ -663,9 +663,9 @@ test("downloadSubmission emits exactly Problem_4_Program.cs and Problem_4_Models
   f.QL.loadPreset("summer");
   f.QL.downloadSubmission(f.els["ql-submit-btn"]);
   const names = downloads.map((d) => d.name).sort();
-  eq(names.length, 2, "exactly two files downloaded");
-  eq(names[0], "Problem_4_Models.cs");
-  eq(names[1], "Problem_4_Program.cs");
+  /* the full submission set: input data + Program + Models + populated results */
+  eq(names.length, 4, "four files downloaded (input + program + models + output)");
+  eq(names.join(","), "Problem_4_Models.cs,Problem_4_Program.cs,Problem_4_Query_Results.json,spaceships.json");
   /* every download is a blob URL (no zip dependency) */
   downloads.forEach((d) => includes(d.href, "blob:", "submission download is a blob URL"));
 });
@@ -684,7 +684,10 @@ test("submission download does NOT depend on PROJZIP being loaded", () => {
   /* the submission button is rendered even without PROJZIP (unlike Export project) */
   includes(f.els["ql-output"].innerHTML, "Download submission files", "submission button shows without PROJZIP");
   f.QL.downloadSubmission(f.els["ql-submit-btn"]);
-  eq(downloads.sort().join(","), "Problem_4_Models.cs,Problem_4_Program.cs", "both files download with no zip core present");
+  /* recipes.json input + the two logic files + the populated results, all as plain
+     blobs (no zip core present) */
+  eq(downloads.sort().join(","), "Problem_4_Models.cs,Problem_4_Program.cs,Problem_4_Query_Results.json,recipes.json",
+    "input + logic + output all download with no zip core present");
 });
 
 /* ============================================================

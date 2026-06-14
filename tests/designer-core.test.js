@@ -1278,3 +1278,105 @@ test("inertAlignmentAxis matches Avalonia stack-panel layout", () => {
   eq(C.inertAlignmentAxis("Grid", "Vertical"), null);
   eq(C.inertAlignmentAxis("Border"), null);
 });
+
+/* ---------------- size-locked window (CanResize) ---------------- */
+test("window is size-locked by default: generated axaml sets CanResize=False", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  includes(C.generate(tree).axaml, 'CanResize="False"', "default design locks the window size");
+});
+test("unlocking the window (SizeLocked=false) drops CanResize so it can resize", () => {
+  const tree = C.createNode("Window");
+  tree.props.SizeLocked = false;
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  notIncludes(C.generate(tree).axaml, "CanResize", "unlocked window has no CanResize attr");
+});
+
+/* ---------------- rotation -> RenderTransform ---------------- */
+test("a rotated element emits a centred RenderTransform, not a literal Rotation attr", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const el = C.createNode("Ellipse"); el.props.Rotation = 45; C.addChild(tree, sp.id, el);
+  const ax = C.generate(tree).axaml;
+  includes(ax, 'RenderTransform="rotate(45deg)"', "rotate transform emitted");
+  includes(ax, 'RenderTransformOrigin="50%,50%"', "rotates around the centre (relative origin)");
+  notIncludes(ax, 'Rotation="', "no invalid literal Rotation attribute");
+});
+test("rotation of 0 emits nothing (clean output)", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const el = C.createNode("Rectangle"); el.props.Rotation = 0; C.addChild(tree, sp.id, el);
+  notIncludes(C.generate(tree).axaml, "RenderTransform", "zero rotation is a no-op");
+});
+
+/* ---------------- geometry shapes never emit inert Width/Height ---------------- */
+test("a Line keeps its geometry and never emits inert Width/Height", () => {
+  const tree = C.createNode("Window");
+  const cv = C.createNode("Canvas"); C.addChild(tree, tree.id, cv);
+  const ln = C.createNode("Line");
+  ln.props.StartPoint = "10,20"; ln.props.EndPoint = "120,80";   // non-default points
+  ln.props.Width = 270; ln.props.Height = 270;          // stray/legacy size props
+  C.addChild(tree, cv.id, ln);
+  const ax = C.generate(tree).axaml;
+  includes(ax, 'StartPoint="10,20"', "keeps StartPoint");
+  includes(ax, 'EndPoint="120,80"', "keeps EndPoint");
+  notIncludes(ax, 'Width="270"', "Line must not ship an inert Width");
+  notIncludes(ax, 'Height="270"', "Line must not ship an inert Height");
+});
+
+/* ---------------- shapes must be visible in the exported app ---------------- */
+test("a Line with no Stroke still exports a visible stroke (not a blank window)", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const ln = C.createNode("Line"); ln.props.EndPoint = "190,100"; ln.props.Rotation = 121;
+  C.addChild(tree, sp.id, ln);                 // no Stroke / StrokeThickness set by the user
+  const ax = C.generate(tree).axaml;
+  includes(ax, 'Stroke="Black"', "line gets a default visible stroke");
+  includes(ax, 'StrokeThickness="2"', "line gets a default thickness");
+  includes(ax, 'RenderTransform="rotate(121deg)"', "rotation still applies");
+});
+test("a user-chosen Line stroke is respected (no override)", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const ln = C.createNode("Line"); ln.props.EndPoint = "100,100"; ln.props.Stroke = "#ff0000";
+  C.addChild(tree, sp.id, ln);
+  const ax = C.generate(tree).axaml;
+  includes(ax, 'Stroke="#ff0000"', "keeps the user's stroke");
+  notIncludes(ax, 'Stroke="Black"', "does not also add the default");
+  includes(ax, 'StrokeThickness="2"', "still ensures a thickness");
+});
+test("a Polygon with neither Fill nor Stroke exports a visible default fill", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const pg = C.createNode("Polygon"); C.addChild(tree, sp.id, pg);
+  includes(C.generate(tree).axaml, 'Fill="#9AA7B8"', "polygon is visible by default");
+});
+
+test("a fresh Rectangle/Ellipse exports a visible fill + size (no blank shape)", () => {
+  ["Rectangle", "Ellipse"].forEach(function (type) {
+    const tree = C.createNode("Window");
+    const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+    C.addChild(tree, sp.id, C.createNode(type));   // nothing set by the user
+    const ax = C.generate(tree).axaml;
+    includes(ax, 'Fill="#9AA7B8"', type + " gets a visible default fill");
+    includes(ax, 'Width="80"', type + " gets a default width");
+    includes(ax, 'Height="50"', type + " gets a default height");
+  });
+});
+test("a user-set Ellipse fill/size is respected (no default override)", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const el = C.createNode("Ellipse");
+  el.props.Fill = "#7fd962"; el.props.Width = 120; el.props.Height = 120;
+  C.addChild(tree, sp.id, el);
+  const ax = C.generate(tree).axaml;
+  includes(ax, 'Fill="#7fd962"', "keeps the chosen fill");
+  notIncludes(ax, 'Fill="#9AA7B8"', "no default fill added");
+  includes(ax, 'Width="120"', "keeps the chosen width");
+});
+test("a locked element is designer-only and never leaks into the exported axaml", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); sp.locked = true; C.addChild(tree, tree.id, sp);
+  const btn = C.createNode("Button"); btn.locked = true; C.addChild(tree, sp.id, btn);
+  notIncludes(C.generate(tree).axaml, "locked", "lock state is not exported");
+});
