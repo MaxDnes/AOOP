@@ -43,6 +43,30 @@ test("C#: multiple numbers and args stay well-formed", () => {
   samples.forEach((s) => assertNoLeakedMarkup(C.hiCS(s), s));
 });
 
+/* the exact LINQ "Same query twice" block from the reported screenshot:
+   `new List<int> { 1, 2, 3, 4, 5 }` rendered each number as `class="tk-num">N`.
+   The full multi-line block (collection initializer + lambda + query syntax)
+   must round-trip with clean tk-num spans and no leaked markup. */
+test("C#: the LINQ slide block (collection initializer + query syntax) never leaks tk-num", () => {
+  const code = [
+    "var numbers = new List<int> { 1, 2, 3, 4, 5 };",
+    "",
+    "// Method chaining",
+    "var evensMethod = numbers.Where(n => n % 2 == 0).ToList();",
+    "",
+    "// Query syntax",
+    "var evensQuery = from n in numbers",
+    "                 where n % 2 == 0",
+    "                 select n;",
+  ].join("\n");
+  const out = C.hiCS(code);
+  assertNoLeakedMarkup(out, "LINQ slide block");
+  notIncludes(out, '>class="tk-num"', "no split number span leaked as text");
+  notIncludes(out, "<span <span", "the keyword pass must not split any number span");
+  /* every literal 1..5 is a clean number span */
+  [1, 2, 3, 4, 5].forEach((n) => includes(out, '<span class="tk-num">' + n + "</span>", "number " + n));
+});
+
 test("C#: numbers, keywords and types still highlight correctly", () => {
   const out = C.hiCS("int x = 5;");
   includes(out, '<span class="tk-num">5</span>', "number");

@@ -25,6 +25,7 @@ const CATEGORIES = [
   { name: "Unit Testing",           color: "#39bae6" },
   { name: "Algorithms & Big-O",     color: "#d2a6ff" },
   { name: "Design Process",          color: "#f28fad" },
+  { name: "Glossary",               color: "#ffb454" },
 ];
 
 /* ---------------- tools registry (single source of truth) ----------------
@@ -140,6 +141,10 @@ function inline(s) {
   let h = esc(s);
   // [[id|label]] and [[lab/<file>|label]] cross-links (slash allowed for lab routes)
   h = h.replace(/\[\[([\w\/-]+)\|([^\]]+)\]\]/g, '<a class="xref" onclick="go(\'$1\')">$2</a>');
+  // [label](url) external links (e.g. the merged slides PDF); opens in a new tab.
+  // Runs AFTER [[...]] so wiki cross-links are not partially matched; the url has
+  // no spaces and is already esc()'d above.
+  h = h.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a class="xref" href="$2" target="_blank" rel="noopener">$1</a>');
   h = h.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
   h = h.replace(/`([^`]+)`/g, "<code>$1</code>");
   return h;
