@@ -1144,18 +1144,41 @@
   }
 
   /* "apply a method to the deserialised list" (task 3.1.3 and friends): ToString to
-     print every item, or a terminal LINQ method (Count/Sum/Average/Min/Max/First/
-     Last/Distinct/Any). ToString/First/Last also flag that the model needs a
-     ToString() override (see rowNeedsToString). */
+     print every item, or a terminal LINQ method. Supported:
+       ToString  -> print every item
+       ToList    -> materialise the list
+       Count / Sum / Average / Min / Max  -> a scalar over items / a field
+       Any / All -> a bool (All = "every item has the chosen field set")
+       Contains  -> a bool (does the chosen field's values contain a typed value)
+       MinBy / MaxBy -> the item with the smallest / largest chosen field
+       FirstOrDefault / LastOrDefault -> a single element (or null)
+       Distinct  -> the distinct values of a field
+       ToHashSet -> the distinct field values as a set
+       ToDictionary -> the items keyed by a field
+     ToString / First / Last / MaxBy / MinBy / ToDictionary also flag that the model
+     needs a ToString() override (see rowNeedsToString). */
   function genListMethod(model, row, overrides) {
     var method = row.method || "toString";
     var fieldRefS = row.field ? fieldRef(model, row.field, overrides, "s") : firstScalarFieldRef(model);
     if (method === "toString") return { isPrintAll: true };
+    if (method === "toList")   return { expr: "source.ToList()" };
     if (method === "count")    return { expr: "source.Count", scalar: true };
     if (method === "any")      return { expr: "source.Any()", scalar: true };
+    if (method === "all")      return { expr: "source.All(s => " + fieldRefS + " != null)", scalar: true };
     if (method === "first")    return { expr: "source.FirstOrDefault()", element: true };
     if (method === "last")     return { expr: "source.LastOrDefault()", element: true };
+    if (method === "minBy")    return { expr: "source.MinBy(s => " + fieldRefS + ")", element: true };
+    if (method === "maxBy")    return { expr: "source.MaxBy(s => " + fieldRefS + ")", element: true };
     if (method === "distinct") return { expr: "source.Select(s => " + fieldRefS + ").Distinct().ToList()", valueList: true };
+    if (method === "toHashSet") return { expr: "source.Select(s => " + fieldRefS + ").ToHashSet()", valueList: true };
+    if (method === "toDictionary") return { expr: "source.ToDictionary(s => " + fieldRefS + ")", valueList: true };
+    if (method === "contains") {
+      var cf = row.field ? findRootField(model, row.field) : null;
+      var cbase = cf ? rootEffectiveBase(model, cf, overrides) : "string";
+      var clit = (cbase === "string") ? csString(row.value) : equalsLiteral(cbase, row.value);
+      if (clit === null) clit = csString(row.value);   /* long/unparseable: fall back to a quoted literal */
+      return { expr: "source.Select(s => " + fieldRefS + ").Contains(" + clit + ")", scalar: true };
+    }
     if (method === "sum" || method === "average" || method === "min" || method === "max") {
       var M = method.charAt(0).toUpperCase() + method.slice(1);
       return { expr: "source." + M + "(s => " + fieldRefS + ")", scalar: true };
@@ -1171,7 +1194,8 @@
     if (row.reduce === "first") return true;
     if (row.shape !== "list-method") return false;
     var m = row.method || "toString";
-    return m === "toString" || m === "first" || m === "last";
+    return m === "toString" || m === "first" || m === "last" ||
+      m === "maxBy" || m === "minBy" || m === "toDictionary";
   }
 
   var SHAPES = {

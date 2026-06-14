@@ -1,0 +1,43 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Counter.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:Class="Counter.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="Counter"
+        SizeToContent="WidthAndHeight">
+
+    <Design.DataContext>
+        <!-- This only sets the DataContext for the previewer in an IDE,
+             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Window.Styles>
+        <Style Selector="TextBlock">
+            <Setter Property="Background" Value="Black" />
+            <Setter Property="FontSize" Value="50" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Padding" Value="10" />
+            <Setter Property="TextElement.Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="Background" Value="Black" />
+            <Setter Property="FontSize" Value="25" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Padding" Value="5" />
+        </Style>
+    </Window.Styles>
+
+    <StackPanel Orientation="Vertical">
+        <TextBlock Width="250" Text="{Binding Count}"/>
+        <Grid ColumnDefinitions="*,*">
+            <Button Grid.Column="0" Content="+" Command="{Binding IncrementCommand}"/>
+            <Button Grid.Column="1" Content="-" Command="{Binding DecrementCommand}"/>
+        </Grid>
+    </StackPanel>
+
+</Window>

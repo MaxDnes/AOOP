@@ -1,0 +1,163 @@
+
+[
+  {
+    "Name": "Tagiatelle Carbonara",
+    "Ingredients": [
+      "Pasta",
+      "Eggs",
+      "Parmesan",
+      "Bacon"
+    ],
+    "DietaryTags": []
+  },
+  {
+    "Name": "Spaghetti Bolognese",
+    "Ingredients": [
+      "Pasta",
+      "Ground Beef",
+      "Tomatoes"
+    ],
+    "DietaryTags": []
+  },
+  {
+    "Name": "Vegetable Curry",
+    "Ingredients": [
+      "Mixed Vegetables",
+      "Coconut Milk",
+      "Curry Paste"
+    ],
+    "DietaryTags": [
+      "Vegetarian"
+    ]
+  },
+  {
+    "Name": "Chicken Stir-fry",
+    "Ingredients": [
+      "Chicken Breast",
+      "Broccoli",
+      "Soy Sauce"
+    ],
+    "DietaryTags": []
+  },
+  {
+    "Name": "Lentil Soup",
+    "Ingredients": [
+      "Lentils",
+      "Carrots",
+      "Celery"
+    ],
+    "DietaryTags": [
+      "Vegetarian"
+    ]
+  },
+  {
+    "Name": "Salmon with Asparagus",
+    "Ingredients": [
+      "Salmon Fillet",
+      "Asparagus",
+      "Lemon"
+    ],
+    "DietaryTags": []
+  },
+  {
+    "Name": "Beef Tacos",
+    "Ingredients": [
+      "Ground Beef",
+      "Tortillas",
+      "Salsa"
+    ],
+    "DietaryTags": []
+  },
+  {
+    "Name": "Mushroom Risotto",
+    "Ingredients": [
+      "Arborio Rice",
+      "Mushrooms",
+      "Parmesan"
+    ],
+    "DietaryTags": [
+      "Vegetarian"
+    ]
+  },
+  {
+    "Name": "Pork Chops with Apples",
+    "Ingredients": [
+      "Pork Chops",
+      "Apples",
+      "Onion"
+    ],
+    "DietaryTags": []
+  },
+  {
+    "Name": "Quinoa Salad",
+    "Ingredients": [
+      "Quinoa",
+      "Cucumber",
+      "Tomatoes",
+      "Feta"
+    ],
+    "DietaryTags": [
+      "Vegetarian"
+    ]
+  },
+  {
+    "Name": "Shepherd's Pie",
+    "Ingredients": [
+      "Ground Lamb",
+      "Potatoes",
+      "Peas"
+    ],
+    "DietaryTags": []
+  },
+  {
+    "Name": "Nutty Granola Bars",
+    "Ingredients": [
+      "Oats",
+      "Honey",
+      "Nuts"
+    ],
+    "DietaryTags": [
+      "ContainsNuts",
+      "Vegetarian"
+    ]
+  },
+  {
+    "Name": "Vegan Chili",
+    "Ingredients": [
+      "Kidney Beans",
+      "Black Beans",
+      "Diced Tomatoes",
+      "Chili Powder"
+    ],
+    "DietaryTags": [
+      "Vegan",
+      "Vegetarian",
+      "GlutenFree"
+    ]
+  },
+  {
+    "Name": "Gluten-Free Pancakes",
+    "Ingredients": [
+      "Gluten-Free Flour",
+      "Eggs",
+      "Milk",
+      "Baking Powder"
+    ],
+    "DietaryTags": [
+      "GlutenFree",
+      "Vegetarian"
+    ]
+  },
+  {
+    "Name": "Shrimp Scampi",
+    "Ingredients": [
+      "Shrimp",
+      "Garlic",
+      "Butter",
+      "Linguine"
+    ],
+    "DietaryTags": [
+      "Seafood"
+    ]
+  }
+]

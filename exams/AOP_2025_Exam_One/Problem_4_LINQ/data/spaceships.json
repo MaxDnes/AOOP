@@ -1,0 +1,183 @@
+[
+  {
+    "ShipId": "SHP-MIL-001",
+    "Name": "Aegis Hammer",
+    "Type": "Military"
+  },
+  {
+    "ShipId": "SHP-CRG-001",
+    "Name": "Belt Hauler",
+    "Type": "Cargo",
+    "TravelHistory": [
+      {"TripId": "TRP003","DeparturePort": "Titan Docks","ArrivalPort": "Luna Gateway","DepartureDate": "2245-05-01","ArrivalDate": "2245-05-15"},
+      {"TripId": "TRP004","DeparturePort": "Luna Gateway","ArrivalPort": "Ceres Hub","DepartureDate": "2245-05-20","ArrivalDate": "2245-05-28"},
+      {"TripId": "TRP012","DeparturePort": "Ceres Hub","ArrivalPort": "Luna Gateway","DepartureDate": "2245-06-15","ArrivalDate": "2245-06-23"},
+      {"TripId": "TRP029","DeparturePort": "Luna Gateway","ArrivalPort": "Mars Station Alpha","DepartureDate": "2245-07-01","ArrivalDate": "2245-07-05"},
+      {"TripId": "TRP030","DeparturePort": "Mars Station Alpha","ArrivalPort": "Ceres Hub","DepartureDate": "2245-07-10"}
+    ]
+  },
+  {
+    "ShipId": "SHP-PAS-001",
+    "Name": "Star Hopper",
+    "Type": "Passenger",
+    "TravelHistory": [
+      {"TripId": "TRP005","DeparturePort": "Luna Gateway","ArrivalPort": "Mars Station Alpha","DepartureDate": "2245-06-01","ArrivalDate": "2245-06-05"},
+      {"TripId": "TRP007","DeparturePort": "Mars Station Alpha","ArrivalPort": "Luna Gateway","DepartureDate": "2245-06-10","ArrivalDate": "2245-06-14"},
+      {"TripId": "TRP031","DeparturePort": "Luna Gateway","ArrivalPort": "Ganymede Port","DepartureDate": "2245-06-20","ArrivalDate": "2245-07-05"}
+    ]
+  },
+  {
+    "ShipId": "SHP-CRG-002",
+    "Name": "Jupiter Ore Carrier",
+    "Type": "Cargo",
+    "TravelHistory": [
+      {"TripId": "TRP006","DeparturePort": "Ceres Hub","ArrivalPort": "Ganymede Port","DepartureDate": "2245-05-10","ArrivalDate": "2245-05-25"},
+      {"TripId": "TRP008","DeparturePort": "Ganymede Port","ArrivalPort": "Europa Landing","DepartureDate": "2245-06-02","ArrivalDate": "2245-06-06"},
+      {"TripId": "TRP032","DeparturePort": "Europa Landing","ArrivalPort": "Io Sulphur Mines","DepartureDate": "2245-06-15","ArrivalDate": "2245-06-17"},
+      {"TripId": "TRP033","DeparturePort": "Io Sulphur Mines","ArrivalPort": "Ceres Hub","DepartureDate": "2245-06-25"}
+    ]
+  },
+  {
+    "ShipId": "SHP-PAS-002",
+    "Name": "Solaris Express",
+    "Type": "Passenger",
+    "TravelHistory": [
+      {"TripId": "TRP009","DeparturePort": "Titan Docks","ArrivalPort": "Luna Gateway","DepartureDate": "2245-05-18","ArrivalDate": "2245-06-01"},
+      {"TripId": "TRP013","DeparturePort": "Luna Gateway","ArrivalPort": "Titan Docks","DepartureDate": "2245-06-16","ArrivalDate": "2245-06-30"},
+      {"TripId": "TRP034","DeparturePort": "Titan Docks","ArrivalPort": "Triton Outpost","DepartureDate": "2245-07-05","ArrivalDate": "2245-08-05"},
+      {"TripId": "TRP035","DeparturePort": "Triton Outpost","ArrivalPort": "Titan Docks","DepartureDate": "2245-08-10","ArrivalDate": "2245-09-10"}
+    ]
+  },
+  {
+    "ShipId": "SHP-MIL-002",
+    "Name": "UNN Scimitar",
+    "Type": "Military"
+  },
+  {
+    "ShipId": "SHP-CRG-003",
+    "Name": "Titan Gas Hauler",
+    "Type": "Cargo",
+    "TravelHistory": [
+      {"TripId": "TRP011","DeparturePort": "Europa Landing","ArrivalPort": "Titan Docks","DepartureDate": "2245-04-15","ArrivalDate": "2245-05-05"},
+      {"TripId": "TRP038","DeparturePort": "Titan Docks","ArrivalPort": "Luna Gateway","DepartureDate": "2245-05-15","ArrivalDate": "2245-05-30"},
+      {"TripId": "TRP039","DeparturePort": "Luna Gateway","ArrivalPort": "Europa Landing","DepartureDate": "2245-06-10"}
+    ]
+  },
+  {
+    "ShipId": "SHP-CRG-004",
+    "Name": "Kuiper Prospector",
+    "Type": "Cargo",
+    "TravelHistory": [
+      {"TripId": "TRP014","DeparturePort": "Ceres Hub","ArrivalPort": "Triton Outpost","DepartureDate": "2245-05-01","ArrivalDate": "2245-07-01"},
+      {"TripId": "TRP040","DeparturePort": "Triton Outpost","ArrivalPort": "Titan Docks","DepartureDate": "2245-07-10","ArrivalDate": "2245-08-10"}
+    ]
+  },
+  {
+    "ShipId": "SHP-PAS-003",
+    "Name": "Outer Rim Runner",
+    "Type": "Passenger",
+    "TravelHistory": [
+      {"TripId": "TRP015","DeparturePort": "Mars Station Alpha","ArrivalPort": "Titan Docks","DepartureDate": "2245-06-01","ArrivalDate": "2245-06-12"},
+      {"TripId": "TRP041","DeparturePort": "Titan Docks","ArrivalPort": "Ganymede Port","DepartureDate": "2245-06-20","ArrivalDate": "2245-07-01"},
+      {"TripId": "TRP042","DeparturePort": "Ganymede Port","ArrivalPort": "Mars Station Alpha","DepartureDate": "2245-07-05","ArrivalDate": "2245-07-15"}
+    ]
+  },
+  {
+    "ShipId": "SHP-MIL-003",
+    "Name": "MCRN Donnager",
+    "Type": "Military"
+  },
+  {
+    "ShipId": "SHP-CRG-005",
+    "Name": "Io Sulphur Tanker",
+    "Type": "Cargo",
+    "TravelHistory": [
+      {"TripId": "TRP017","DeparturePort": "Ganymede Port","ArrivalPort": "Io Sulphur Mines","DepartureDate": "2245-06-10","ArrivalDate": "2245-06-12"},
+      {"TripId": "TRP045","DeparturePort": "Io Sulphur Mines","ArrivalPort": "Europa Landing","DepartureDate": "2245-06-15","ArrivalDate": "2245-06-17"},
+      {"TripId": "TRP046","DeparturePort": "Europa Landing","ArrivalPort": "Ganymede Port","DepartureDate": "2245-06-20","ArrivalDate": "2245-06-22"}
+    ]
+  },
+  {
+    "ShipId": "SHP-PAS-004",
+    "Name": "Ganymede Flyer",
+    "Type": "Passenger",
+    "TravelHistory": [
+      {"TripId": "TRP018","DeparturePort": "Ganymede Port","ArrivalPort": "Ceres Hub","DepartureDate": "2245-06-18", "ArrivalDate": "2245-06-25"},
+      {"TripId": "TRP047","DeparturePort": "Ceres Hub","ArrivalPort": "Pallas Station","DepartureDate": "2245-07-01", "ArrivalDate": "2245-07-03"},
+      {"TripId": "TRP048","DeparturePort": "Pallas Station","ArrivalPort": "Ceres Hub","DepartureDate": "2245-07-05", "ArrivalDate": "2245-07-07"}
+    ]
+  },
+  {
+    "ShipId": "SHP-MIL-004",
+    "Name": "Rocinante",
+    "Type": "Military",
+    "TravelHistory": [
+       {"TripId": "TRP019","DeparturePort": "Europa Landing","ArrivalPort": "Titan Docks","DepartureDate": "2245-06-05","ArrivalDate": "2245-06-15"},
+       {"TripId": "TRP049","DeparturePort": "Titan Docks","ArrivalPort": "Triton Outpost","DepartureDate": "2245-06-20","ArrivalDate": "2245-07-20"},
+       {"TripId": "TRP050","DeparturePort": "Triton Outpost","ArrivalPort": "Titan Docks","DepartureDate": "2245-07-25","ArrivalDate": "2245-08-25"}
+    ]
+  },
+  {
+    "ShipId": "SHP-CRG-006",
+    "Name": "Pallas Miner",
+    "Type": "Cargo",
+    "TravelHistory": [
+       {"TripId": "TRP020","DeparturePort": "Mars Station Alpha","ArrivalPort": "Pallas Station","DepartureDate": "2245-05-20","ArrivalDate": "2245-05-29"},
+       {"TripId": "TRP051","DeparturePort": "Pallas Station","ArrivalPort": "Ceres Hub","DepartureDate": "2245-06-05","ArrivalDate": "2245-06-08"},
+       {"TripId": "TRP052","DeparturePort": "Ceres Hub","ArrivalPort": "Mars Station Alpha","DepartureDate": "2245-06-15","ArrivalDate": "2245-06-22"}
+    ]
+  },
+   {
+    "ShipId": "SHP-PAS-005",
+    "Name": "Neptune Voyager",
+    "Type": "Passenger",
+    "TravelHistory": [
+       {"TripId": "TRP021","DeparturePort": "Titan Docks","ArrivalPort": "Triton Outpost","DepartureDate": "2245-05-10","ArrivalDate": "2245-06-10"},
+       {"TripId": "TRP053","DeparturePort": "Triton Outpost","ArrivalPort": "Titan Docks","DepartureDate": "2245-06-15","ArrivalDate": "2245-07-15"},
+       {"TripId": "TRP054","DeparturePort": "Titan Docks","ArrivalPort": "Luna Gateway","DepartureDate": "2245-07-20"}
+    ]
+  },
+   {
+    "ShipId": "SHP-MIL-005",
+    "Type": "Military"
+  },
+   {
+    "ShipId": "SHP-CRG-007",
+    "Type": "Cargo",
+    "TravelHistory": [
+       {"TripId": "TRP023","DeparturePort": "Luna Gateway","ArrivalPort": "Mars Station Alpha","DepartureDate": "2245-06-12","ArrivalDate": "2245-06-17"},
+       {"TripId": "TRP057","DeparturePort": "Mars Station Alpha","ArrivalPort": "Ceres Hub","DepartureDate": "2245-06-20","ArrivalDate": "2245-06-27"},
+       {"TripId": "TRP058","DeparturePort": "Ceres Hub","ArrivalPort": "Luna Gateway","DepartureDate": "2245-07-01","ArrivalDate": "2245-07-09"}
+    ]
+  },
+  {
+    "ShipId": "SHP-PAS-006",
+    "Name": "Belt Tourist",
+    "Type": "Passenger",
+    "TravelHistory": [
+       {"TripId": "TRP024","DeparturePort": "Luna Gateway","ArrivalPort": "Ceres Hub","DepartureDate": "2245-06-05","ArrivalDate": "2245-06-11"},
+       {"TripId": "TRP059","DeparturePort": "Ceres Hub","ArrivalPort": "Pallas Station","DepartureDate": "2245-06-15","ArrivalDate": "2245-06-18"},
+       {"TripId": "TRP060","DeparturePort": "Pallas Station","ArrivalPort": "Luna Gateway","DepartureDate": "2245-06-25"}
+    ]
+  },
+   {
+    "ShipId": "SHP-CRG-008",
+    "Name": "Europa Ice Hauler",
+    "Type": "Cargo",
+    "TravelHistory": [
+       {"TripId": "TRP025","DeparturePort": "Europa Landing","ArrivalPort": "Mars Station Alpha","DepartureDate": "2245-06-15","ArrivalDate": "2245-06-25"},
+       {"TripId": "TRP061","DeparturePort": "Mars Station Alpha","ArrivalPort": "Luna Gateway","DepartureDate": "2245-07-01","ArrivalDate": "2245-07-05"},
+       {"TripId": "TRP062","DeparturePort": "Luna Gateway","ArrivalPort": "Mars Station Alpha","DepartureDate": "2245-07-10","ArrivalDate": "2245-07-14"}
+    ]
+  },
+  {
+    "ShipId": "SHP-MIL-006",
+    "Name": "Earth Defense Monitor",
+    "Type": "Military",
+    "TravelHistory": [
+       {"TripId": "TRP026","DeparturePort": "Mars Station Alpha","ArrivalPort": "Luna Gateway","DepartureDate": "2245-06-10","ArrivalDate": "2245-06-14"},
+       {"TripId": "TRP063","DeparturePort": "Luna Gateway","ArrivalPort": "Mars Station Alpha","DepartureDate": "2245-06-20","ArrivalDate": "2245-06-24"},
+       {"TripId": "TRP064","DeparturePort": "Mars Station Alpha","ArrivalPort": "Luna Gateway","DepartureDate": "2245-07-01","ArrivalDate": "2245-07-05"}
+    ]
+  }
+]

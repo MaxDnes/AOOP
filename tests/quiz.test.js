@@ -3,7 +3,7 @@ const { test, eq, ok } = require("./t.js");
 const fs = require("fs");
 global.window = global;
 const BANK = require("../data/quiz-bank.js");
-const CATS = ["Exam Theory", "OOP", "SOLID", "Avalonia & MVVM", "Testing", "Threading & Async", "LINQ & JSON", "Collections & Generics", "Design Process"];
+const CATS = ["Exam Theory", "OOP", "SOLID", "Avalonia & MVVM", "Testing", "Threading & Async", "LINQ & JSON", "Collections & Generics", "Design Process", "Mock Exam 1", "Mock Exam 2"];
 test("bank has at least 120 questions", () => ok(BANK.length >= 120, "got " + BANK.length));
 test("Exam Theory category has exactly the 20 Problem-1-style MCQs", () => {
   const et = BANK.filter((q) => q.cat === "Exam Theory");
@@ -46,6 +46,30 @@ test("lnq-18s model answer uses a neutral filename, not the stale Problem_4_Quer
   ok(q, "lnq-18s question exists");
   ok(q.answer.indexOf("Problem_4_Query_Results.json") === -1, "stale filename must be gone from the model code");
   ok(/WriteAllText\("results\.json"/.test(q.answer), "model code writes the neutral results.json name");
+});
+
+test("each Mock Exam set is a takeable 20-question MCQ paper (2026 format)", () => {
+  ["Mock Exam 1", "Mock Exam 2"].forEach((set) => {
+    const qs = BANK.filter((q) => q.cat === set);
+    ok(qs.length === 20, set + " must have exactly 20 questions, got " + qs.length);
+    // the real Problem-1 paper is pure multiple choice: no short-answer items
+    ok(qs.every((q) => q.type === "mc" || q.type === "code-mc"), set + " must be all mc/code-mc");
+    // a faithful mix carries some read-the-code questions like the real paper
+    ok(qs.filter((q) => q.type === "code-mc").length >= 8, set + " needs >= 8 code questions");
+    // every answer index is in range and every code-mc carries code (also covered by
+    // the global schema test, asserted here so a bad mock-exam edit fails loudly)
+    qs.forEach((q) => {
+      ok(Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.choices.length, q.id + " bad answer idx");
+      if (q.type === "code-mc") ok(q.code, q.id + " code-mc needs code");
+    });
+  });
+});
+
+test("Mock Exam ids are unique and namespaced (me1-/me2-)", () => {
+  const me1 = BANK.filter((q) => q.cat === "Mock Exam 1");
+  const me2 = BANK.filter((q) => q.cat === "Mock Exam 2");
+  ok(me1.every((q) => /^me1-\d\d$/.test(q.id)), "Mock Exam 1 ids must look like me1-NN");
+  ok(me2.every((q) => /^me2-\d\d$/.test(q.id)), "Mock Exam 2 ids must look like me2-NN");
 });
 
 test("HashSet collections topic does not claim a guaranteed iteration order", () => {

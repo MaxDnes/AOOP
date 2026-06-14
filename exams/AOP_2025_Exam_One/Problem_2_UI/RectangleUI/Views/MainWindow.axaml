@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:RectangleUI.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:models="using:RectangleUI.Models"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:Class="RectangleUI.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="RectangleUI"
+        SizeToContent="WidthAndHeight">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <DockPanel LastChildFill="True">
+        <StackPanel DockPanel.Dock="Left">
+            <Button Margin="10" Content="Add Rectangle"/>
+            <Slider Margin="10" Value="50" Minimum="0" Maximum="100"/>
+            <Slider Margin="10" Value="50" Minimum="0" Maximum="100"/>
+        </StackPanel>
+
+     
+    <Panel> 
+        <ItemsControl ItemsSource="">
+
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <Canvas Background="LightGray" Width="500" Height="500"/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="{x:Type models:RectangleData}">
+                    <Rectangle Width="100" Height="100" Fill="Red" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+
+            <ItemsControl.Styles>
+                <Style Selector="ContentPresenter"  x:DataType="models:RectangleData">
+                    <Setter Property="Canvas.Left" Value="10"/>
+                    <Setter Property="Canvas.Top" Value="10"/>
+                </Style>
+            </ItemsControl.Styles>
+
+        </ItemsControl>
+    </Panel>
+
+    </DockPanel>
+
+</Window>

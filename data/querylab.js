@@ -59,16 +59,23 @@ const AGGREGATES = ["Count", "Average", "Max", "Min"];
 /* methods you can apply to the whole deserialised list (task 3.1.3 and friends).
    `field: true` means the method reduces a chosen field; the rest act on items. */
 const LIST_METHODS = [
-  { key: "toString", label: "ToString() → override model + print every item", field: false },
-  { key: "count",    label: "Count — how many items",                         field: false },
-  { key: "sum",      label: "Sum of a field",                                 field: true },
-  { key: "average",  label: "Average of a field",                             field: true },
-  { key: "min",      label: "Min of a field",                                 field: true },
-  { key: "max",      label: "Max of a field",                                 field: true },
-  { key: "distinct", label: "Distinct values of a field",                     field: true },
-  { key: "first",    label: "First item",                                     field: false },
-  { key: "last",     label: "Last item",                                      field: false },
-  { key: "any",      label: "Any — is the list non-empty",                    field: false },
+  { key: "toString",     label: "ToString() → override model + print every item", field: false },
+  { key: "toList",       label: "ToList() — materialise the list",                field: false },
+  { key: "count",        label: "Count — how many items",                         field: false },
+  { key: "any",          label: "Any() — is the list non-empty",                  field: false },
+  { key: "all",          label: "All() — every item has this field set",          field: true },
+  { key: "contains",     label: "Contains() — a field's values contain a value",  field: true },
+  { key: "sum",          label: "Sum of a field",                                 field: true },
+  { key: "average",      label: "Average of a field",                             field: true },
+  { key: "min",          label: "Min of a field",                                 field: true },
+  { key: "max",          label: "Max of a field",                                 field: true },
+  { key: "minBy",        label: "MinBy() — item with the smallest field",         field: true },
+  { key: "maxBy",        label: "MaxBy() — item with the largest field",          field: true },
+  { key: "distinct",     label: "Distinct values of a field",                     field: true },
+  { key: "toHashSet",    label: "ToHashSet() — distinct field values as a set",   field: true },
+  { key: "toDictionary", label: "ToDictionary() — key the items by a field",      field: true },
+  { key: "first",        label: "FirstOrDefault() — first item or null",          field: false },
+  { key: "last",         label: "LastOrDefault() — last item or null",            field: false },
 ];
 const LIST_METHOD_BY_KEY = {};
 LIST_METHODS.forEach(function (m) { LIST_METHOD_BY_KEY[m.key] = m; });
@@ -505,8 +512,12 @@ function rowHTML(row, i) {
     h += "</select>";
     const md = LIST_METHOD_BY_KEY[method];
     if (md && md.field) {
-      h += '<span class="ql-inline-lab">of</span>';
+      h += '<span class="ql-inline-lab">' + (method === "toDictionary" ? "keyed by" : "of") + '</span>';
       h += fieldSelect(row, "field", scalarFields(), row.field);
+    }
+    if (method === "contains") {
+      h += '<span class="ql-inline-lab">contains</span>';
+      h += '<input class="ql-val" value="' + esc(row.value || "") + '" placeholder="value" title="value to look for in the selected field" onchange="QL.setRow(' + i + ', \'value\', this.value)">';
     }
   }
   if (needs.indexOf("field") !== -1) {

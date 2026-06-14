@@ -22,6 +22,8 @@ var CATS = [
   { name: "LINQ & JSON",            color: "#7fd962" },
   { name: "Collections & Generics", color: "#7fd962" },
   { name: "Design Process",         color: "#ffb454" },
+  { name: "Mock Exam 1",            color: "#95e6cb" },
+  { name: "Mock Exam 2",            color: "#ff8f40" },
 ];
 
 var MODES = [

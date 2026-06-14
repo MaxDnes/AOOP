@@ -313,6 +313,35 @@ test("the terminal list-methods each emit correct LINQ", () => {
   includes(gen("first"), "var r = source.FirstOrDefault();", "first");
   includes(gen("last"), "var r = source.LastOrDefault();", "last");
   includes(gen("any"), "var r = source.Any();", "any");
+  /* methods requested for the add-method section (Gabriel's list) */
+  includes(gen("toList"), "var r = source.ToList();", "toList");
+  includes(gen("all", "author"), "var r = source.All(s => s.Author != null);", "all");
+  includes(gen("maxBy", "releaseYear"), "var r = source.MaxBy(s => s.ReleaseYear);", "maxBy");
+  includes(gen("minBy", "releaseYear"), "var r = source.MinBy(s => s.ReleaseYear);", "minBy");
+  includes(gen("toHashSet", "author"), "var r = source.Select(s => s.Author).ToHashSet();", "toHashSet");
+  includes(gen("toDictionary", "title"), "var r = source.ToDictionary(s => s.Title);", "toDictionary");
+});
+
+test("Contains list-method emits a typed Contains() (string quoted, numeric bare)", () => {
+  const p = C.comicsPreset();
+  const model = presetModel(p);
+  const containsStr = C.generateProgram(model,
+    [{ shape: "list-method", method: "contains", field: "author", value: "Alan Moore", name: "r", label: "contains", print: true }],
+    { namespace: "X" });
+  includes(containsStr, 'var r = source.Select(s => s.Author).Contains("Alan Moore");', "contains string -> quoted");
+  const containsNum = C.generateProgram(model,
+    [{ shape: "list-method", method: "contains", field: "releaseYear", value: "1986", name: "r", label: "contains", print: true }],
+    { namespace: "X" });
+  includes(containsNum, "var r = source.Select(s => s.ReleaseYear).Contains(1986);", "contains int -> bare typed literal");
+});
+
+test("MaxBy/MinBy trigger the model ToString override (they print a whole element)", () => {
+  const p = C.comicsPreset();
+  const model = presetModel(p);
+  const code = C.generateProgram(model,
+    [{ shape: "list-method", method: "maxBy", field: "releaseYear", name: "newest", label: "newest comic", print: true }],
+    { namespace: "X" });
+  includes(code, "public override string ToString()", "MaxBy prints an element, so ToString is overridden");
 });
 
 test("First/Last also trigger the ToString override (the element prints all fields)", () => {
