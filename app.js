@@ -282,6 +282,30 @@ window.BCDEMO = {
   },
 };
 
+/* download a Design Gallery topic as a complete, runnable Avalonia project.
+   The bindings are real: MainWindowViewModel backs every {Binding} in the view. */
+window.DGDEMO = {
+  download: function (id, btn) {
+    const reg = (typeof window !== "undefined" && window.DESIGN_DEMOS) || null;
+    const P = window.PROJZIP;
+    const demo = reg && reg.byId ? reg.byId[id] : null;
+    if (!demo) { flashBtn(btn, "demo not found"); return; }
+    if (!P || typeof P.makeZipBlobUrl !== "function") { flashBtn(btn, "zip writer missing"); return; }
+    let entries;
+    try { entries = reg.buildProject(P, id); } catch (e) { entries = null; }
+    if (!entries || !entries.length) { flashBtn(btn, "build failed"); return; }
+    const base = (P.sanitizeName ? P.sanitizeName(demo.name || id, "GalleryDemo") : (demo.name || id));
+    try {
+      const url = P.makeZipBlobUrl(entries);
+      triggerBlobDownload(url, base + ".zip");
+      setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 4000);
+      flashBtn(btn, "downloaded ✓");
+    } catch (e) {
+      flashBtn(btn, "download failed");
+    }
+  },
+};
+
 function triggerBlobDownload(url, fileName) {
   const a = document.createElement("a");
   a.href = url;
@@ -345,6 +369,32 @@ function renderExamples(t) {
     items.length + ")</summary>" + inner + "</details>";
 }
 
+/* A Design Gallery topic can ship a complete, instantly-runnable Avalonia project
+   (data/design-demos.js, keyed by topic id). When one exists, append a Download
+   (.zip) card so the reader can run the example with its bindings already wired.
+   Renders nothing for topics without a demo, so it is safe on every topic. */
+function renderDesignDemo(t) {
+  const reg = (typeof window !== "undefined" && window.DESIGN_DEMOS) || null;
+  const demo = reg && reg.byId ? reg.byId[t.id] : null;
+  if (!demo) return "";
+  const canZip = !!(typeof window !== "undefined" && window.PROJZIP &&
+    typeof window.PROJZIP.makeZipBlobUrl === "function");
+  let h = '<div class="bcdemo dgdemo">';
+  h += '<div class="bcdemo-bar">';
+  h += '<div class="bcdemo-meta"><span class="bcdemo-ico">⤓</span><span class="bcdemo-name">Run this example</span></div>';
+  if (canZip) {
+    h += '<button class="bcdemo-dl" onclick="DGDEMO.download(\'' + esc(t.id) +
+      '\', this)" title="Download a complete, runnable Avalonia project (.zip)">⤓ Download runnable project (.zip)</button>';
+  } else {
+    h += '<span class="bcdemo-dl bcdemo-dl-off" title="Open the app from index.html so the .zip writer loads">⤓ download unavailable</span>';
+  }
+  h += "</div>";
+  if (demo.blurb) h += '<div class="bcdemo-blurb">' + inline(demo.blurb) + "</div>";
+  h += '<div class="bcdemo-hint">▸ Unzip, then <code>dotnet run</code>. The bindings are wired in <code>MainWindowViewModel.cs</code>.</div>';
+  h += "</div>";
+  return h;
+}
+
 /* ---------------- topic page ---------------- */
 function renderTopic(t) {
   codeRegistry = [];
@@ -364,6 +414,7 @@ function renderTopic(t) {
   }
   h += t.blocks.map(renderBlock).join("");
   h += renderExamples(t);
+  h += renderDesignDemo(t);
 
   if (t.related && t.related.length) {
     h += '<div class="related"><div class="section-label">Related</div>';

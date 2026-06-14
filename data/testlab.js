@@ -71,6 +71,7 @@ let viewModes = {};      // file index -> "edit" | "view"
 let collapsed = {};      // generated fileName -> true when its card is collapsed
 let lastExampleId = null; // id of the worked example currently loaded (for the teaching note)
 let guideOpen = false;   // "How to write each kind of test" panel expanded?
+let projGuideOpen = false; // "Create the xUnit test project" panel expanded?
 let saveTimer = null;
 let genTimer = null;
 
@@ -91,6 +92,7 @@ function exampleById(id) {
    load: the guide panel hides itself rather than crash. */
 function guide() { return Array.isArray(global.TESTLAB_GUIDE) ? global.TESTLAB_GUIDE : []; }
 function guideByKey(key) { return guide().filter(function (g) { return g && g.key === key; })[0] || null; }
+function projGuide() { var g = global.TESTLAB_PROJECT_GUIDE; return (g && Array.isArray(g.steps)) ? g : null; }
 
 /* the zip/scaffold core, loaded read-only. Absent if projzip-core.js did not
    load (e.g. a changed script order): the export button hides itself rather
@@ -289,6 +291,37 @@ function guideHTML() {
     if (g.gotcha) h += '<div class="tl-guide-gotcha"><b>Watch out:</b> ' + esc(g.gotcha) + "</div>";
     h += "</div>";
   });
+  h += "</div>";
+  return h;
+}
+
+/* ---------------- right pane: "create the xUnit test project" ----------------
+   A collapsible, ordered walkthrough (data/testlab-project-guide.js) for a
+   student who has never built a test project: the exact dotnet commands, what
+   each does, and the offline / namespace / ctor gotchas. Sits next to the
+   Export button, which automates the same thing. */
+function projectGuideHTML() {
+  const pg = projGuide();
+  if (!pg) return "";
+  let h = '<div class="tl-projguide-head">' +
+    '<button class="tl-guide-toggle" onclick="TL.toggleProjectGuide()">' +
+    (projGuideOpen ? "▾" : "▸") + ' ' + esc(pg.title) + "</button></div>";
+  if (!projGuideOpen) return h;
+  h += '<div class="tl-projguide" id="tl-projguide">';
+  if (pg.intro) h += '<div class="tl-guide-what">' + esc(pg.intro) + "</div>";
+  if (pg.fastPath) h += '<div class="tl-guide-when"><b>Tip:</b> ' + esc(pg.fastPath) + "</div>";
+  h += '<ol class="tl-projguide-steps">';
+  pg.steps.forEach(function (s) {
+    h += "<li><code class=\"tl-projguide-cmd\">" + esc(s.cmd) + "</code>";
+    if (s.note) h += '<span class="tl-projguide-note">' + esc(s.note) + "</span>";
+    h += "</li>";
+  });
+  h += "</ol>";
+  if (Array.isArray(pg.gotchas) && pg.gotchas.length) {
+    h += '<div class="tl-guide-gotcha"><b>Watch out:</b><ul class="tl-projguide-gotchas">';
+    pg.gotchas.forEach(function (g) { h += "<li>" + esc(g) + "</li>"; });
+    h += "</ul></div>";
+  }
   h += "</div>";
   return h;
 }
@@ -592,6 +625,7 @@ function render() {
   h += '<div class="tl-right">';
   h += '<div class="tl-modes-wrap" id="tl-modes">' + modesHTML() + "</div>";
   h += '<div class="tl-picker-wrap" id="tl-picker-wrap">' + pickerHTML() + "</div>";
+  h += '<div class="tl-projguide-wrap" id="tl-projguide-wrap">' + projectGuideHTML() + "</div>";
   h += '<div class="tl-export-wrap" id="tl-export-wrap">' + exportHTML() + "</div>";
   h += '<div class="tl-output" id="tl-output">' + outputHTML() + "</div>";
   h += "</div>";
@@ -612,6 +646,7 @@ function paintTabs() { paint("tl-tabs", tabsHTML()); }
 function paintEditor() { paint("tl-editor", editorHTML()); }
 function paintModes() { paint("tl-modes", modesHTML()); }
 function toggleGuide() { guideOpen = !guideOpen; paintModes(); }
+function toggleProjectGuide() { projGuideOpen = !projGuideOpen; paint("tl-projguide-wrap", projectGuideHTML()); }
 function paintPicker() { paint("tl-picker-wrap", pickerHTML()); }
 function paintExport() { paint("tl-export-wrap", exportHTML()); }
 function paintOutput() { paint("tl-output", outputHTML()); }
@@ -932,6 +967,7 @@ const TL = {
   loadExample: loadExample,
   loadGallery: loadGallery,
   toggleGuide: toggleGuide,
+  toggleProjectGuide: toggleProjectGuide,
   setMode: setMode,
   setFunc: setFunc,
   allFuncs: allFuncs,

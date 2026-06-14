@@ -933,6 +933,34 @@ test("behaviors compile to target bindings + VM members + a RelayCommand body", 
   notIncludes(viewModel, "// TODO", "behavior command must have a working body");
 });
 
+/* a "set value" behavior on a control with NO Value property (TextBlock) must bind its
+   Text, not Value — emitting Value="{Binding …}" on a TextBlock throws at XAML load. */
+test("setValue on a TextBlock binds Text (not the nonexistent Value)", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const lbl = C.createNode("TextBlock"); lbl.props.Text = "Label"; C.addChild(tree, sp.id, lbl);
+  const btn = C.createNode("Button"); btn.props.Content = "Set"; C.addChild(tree, sp.id, btn);
+  btn.behaviors = [{ kind: "setValue", target: lbl.id, value: "42" }];
+  const { axaml, viewModel } = C.generate(tree);
+  xmlBalanced(axaml);
+  includes(axaml, 'Text="{Binding LabelText}"', "TextBlock setValue must target Text");
+  notIncludes(axaml, "Value=", "must never emit a Value attribute on a TextBlock");
+  includes(viewModel, 'private string labelText = "Label";', "Text-backed member is a string");
+  includes(viewModel, 'LabelText = "42";', "command sets the text member");
+});
+
+/* a "set value" behavior on a Slider keeps the Value binding (Slider has Value). */
+test("setValue on a Slider still binds its real Value property", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const sld = C.createNode("Slider"); C.addChild(tree, sp.id, sld);
+  const btn = C.createNode("Button"); btn.props.Content = "Set"; C.addChild(tree, sp.id, btn);
+  btn.behaviors = [{ kind: "setValue", target: sld.id, value: 75 }];
+  const { axaml, viewModel } = C.generate(tree);
+  includes(axaml, 'Value="{Binding SliderValue}"', "Slider keeps a Value binding");
+  includes(viewModel, "SliderValue = 75;", "command sets the numeric member");
+});
+
 test("behavior toggleVisible emits a negation; show/hide emit true/false", () => {
   const tree = C.createNode("Window");
   const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);

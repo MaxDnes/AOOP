@@ -1275,3 +1275,108 @@ test("UI: TL exposes toggleCard for collapsible cards", () => {
   require("../data/testlab.js");
   ok(typeof global.TL.toggleCard === "function", "TL.toggleCard missing");
 });
+
+/* ============================================================
+   Robustness regressions: the generated tests must COMPILE for any pasted
+   logic. Each case below maps to a bug found in the adversarial review.
+   Helpers: allCode() concatenates the generated files; balance asserts the
+   output is structurally sound.
+   ============================================================ */
+function allCode(src, opts) {
+  const model = C.parse([{ name: "Paste.cs", text: src }]);
+  const files = C.generate(model, Object.assign(
+    { perFunction: true, plain: true, viewModel: true, headless: true, async: true, csproj: false }, opts || {}));
+  return { model, files, code: files.map((f) => f.fileName + "\n" + f.code).join("\n\n") };
+}
+
+test("primary-constructor class gets ctor args, not new Foo()", () => {
+  const r = allCode("namespace ExamApp.ViewModels;\npublic class FooVm(IRepo repo) : ObservableObject { [RelayCommand] void Save(){} }");
+  eq(r.model.classes[0].ctorParams.map((p) => p.type).join(","), "IRepo", "primary ctor params parsed");
+  includes(r.code, "new FooVm(new FakeRepo())", "constructs with a fake, not new FooVm()");
+  notIncludes(r.code, "new FooVm()", "must never new the VM with no args");
+});
+
+test("positional record gets ctor args", () => {
+  const r = allCode("public record Money(int Amount, string Currency);", { headless: false });
+  includes(r.code, 'new Money(0, "x")', "record constructed with positional args");
+  notIncludes(r.code, "new Money()", "no arg-less record construction");
+});
+
+test("static class calls via the class name and never `new`s it", () => {
+  const r = allCode("public static class MathUtil { public static int Square(int x)=>x*x; }", { headless: false });
+  includes(r.code, "MathUtil.Square(", "static method called on the class");
+  notIncludes(r.code, "new MathUtil(", "a static class is never instantiated");
+});
+
+test("abstract class is not instantiated; a concrete-subclass note is emitted", () => {
+  const r = allCode("public abstract class Shape : ObservableObject { public abstract double Area(); [RelayCommand] void Go(){} }", { headless: false });
+  notIncludes(r.code, "new Shape(", "abstract type is never newed up");
+  includes(r.code, "IsAbstract", "emits the abstract-type guidance");
+});
+
+test("generic class is constructed closed over object", () => {
+  const r = allCode("public class Box<T> { public T Item{get;set;} public void Put(T item){Item=item;} }", { headless: false });
+  includes(r.code, "new Box<object>(", "generic type closed with object");
+  notIncludes(r.code, "new Box(", "no open-generic construction");
+});
+
+test("the SUT namespace drives the using (no more hardcoded ExamApp)", () => {
+  const r = allCode("namespace MyGame.Core;\npublic class Scorer { public int Add(int a,int b)=>a+b; }", { headless: false });
+  includes(r.code, "using MyGame.Core;", "imports the declared namespace");
+  notIncludes(r.code, "using ExamApp;", "no stale ExamApp import for a foreign namespace");
+});
+
+test("a service in ExamApp.Services imports ExamApp.Services, not ExamApp", () => {
+  const r = allCode("namespace ExamApp.Services;\npublic class Calc { public int Add(int a,int b)=>a+b; }", { perFunction: false, viewModel: false, headless: false, async: false });
+  includes(r.code, "using ExamApp.Services;", "sub-namespace imported exactly");
+});
+
+test("genPlain awaits async methods (no Task<T> compared to int)", () => {
+  const r = allCode("public class Fetcher { public async System.Threading.Tasks.Task<int> CountAsync()=>0; }",
+    { perFunction: false, viewModel: false, headless: false, async: false });
+  includes(r.code, "public async Task ", "the test method is async Task");
+  includes(r.code, "await sut.CountAsync()", "the async call is awaited before asserting");
+});
+
+test("default path emits no duplicate <Class>Tests.cs (CS0101 guard for plain classes)", () => {
+  const r = allCode("public class Calc { public int Add(int a,int b)=>a+b; }");   // default options
+  const names = r.files.map((f) => f.fileName);
+  const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+  eq(dupes.length, 0, "no duplicate file names: " + names.join(", "));
+  includes(r.code, "public class CalcPlainTests", "plain file renamed to avoid the per-function collision");
+});
+
+test("raw string literals do not leak fake methods into the parse", () => {
+  const src = 'public class RawTest {\n  public string Sql => """\n    public int Injected(int z){ return z; }\n    """;\n  public int Real(int a)=>a;\n}';
+  const model = C.parse([{ name: "Raw.cs", text: src }]);
+  const names = model.classes[0].methods.map((m) => m.name);
+  eq(names.join(","), "Real", "only the real method is parsed; the raw-string body is ignored");
+});
+
+test("headless test constructs a ctor-dependency VM with its fake", () => {
+  const r = allCode("namespace ExamApp.ViewModels;\npublic class WidgetViewModel(IService s) : ObservableObject { [RelayCommand] void Go(){} }");
+  const headless = r.files.filter((f) => f.fileName === "HeadlessUiTests.cs")[0];
+  ok(headless, "headless file emitted");
+  includes(headless.code, "new WidgetViewModel(new FakeService())", "headless builds the VM with a fake");
+  includes(headless.code, "class FakeService", "the fake is embedded in the headless test");
+});
+
+test("void method on a value-type property avoids Assert.NotNull (xUnit2002)", () => {
+  const r = allCode("public class Counter { public int Total { get; private set; } public void Bump(){ Total++; } }",
+    { perFunction: false, viewModel: false, headless: false, async: false });
+  notIncludes(r.code, "Assert.NotNull(sut.Total)", "no NotNull on an int");
+});
+
+test("generated test files stay brace/paren balanced across the hard cases", () => {
+  ["namespace ExamApp.ViewModels;\npublic class FooVm(IRepo repo) : ObservableObject { [RelayCommand] async Task LoadAsync(){} public async Task<int> CountAsync()=>0; }",
+   "public static class U { public static string Fmt(int n)=>n.ToString(); }",
+   "public record Money(int Amount, string Currency);",
+   "public class Box<T> { public void Put(T x){} }",
+  ].forEach((src) => {
+    const r = allCode(src);
+    r.files.filter((f) => /\.cs$/.test(f.fileName)).forEach((f) => {
+      braceBalanced(f.code);
+      parenBalanced(f.code);
+    });
+  });
+});

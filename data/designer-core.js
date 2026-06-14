@@ -676,6 +676,15 @@
     const t = node ? node.type : "";
     return (t === "Button" || t === "CheckBox" || t === "RadioButton") ? "Content" : "Text";
   }
+  /* does this control type declare a catalog property of this name? Used so a
+     "set value" behavior only binds Value on controls that actually have one
+     (Slider/ProgressBar/NumericUpDown); a TextBlock has no Value, and emitting
+     Value="{Binding …}" on it throws a XAML load exception at runtime. */
+  function catalogHasProp(type, propName) {
+    const def = CATALOG[type];
+    if (!def || !def.props) return false;
+    return def.props.some(function (p) { return p.name === propName; });
+  }
   function csStr(s) {
     return String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/"/g, '\\"')
       .replace(/\r?\n/g, "\\n").replace(/\t/g, "\\t");
@@ -732,9 +741,18 @@
           const vm = memberFor(a.target, "IsVisible", "bool", " = true;");
           if (vm) lines.push("        " + vm + (a.kind === "show" ? " = true;" : a.kind === "hide" ? " = false;" : " = !" + vm + ";"));
         } else if (a.kind === "setValue") {
-          const cur = Number((target.props || {}).Value) || 0;
-          const vm = memberFor(a.target, "Value", "double", " = " + cur + ";");
-          if (vm) lines.push("        " + vm + " = " + (Number(a.value) || 0) + ";");
+          if (catalogHasProp(target.type, "Value")) {
+            const cur = Number((target.props || {}).Value) || 0;
+            const vm = memberFor(a.target, "Value", "double", " = " + cur + ";");
+            if (vm) lines.push("        " + vm + " = " + (Number(a.value) || 0) + ";");
+          } else {
+            // target has no Value property (e.g. TextBlock): binding Value would emit
+            // invalid AXAML that throws at load, so set its text property instead.
+            const prop = behaviorTextProp(target);
+            const cur = (target.props || {})[prop] || "";
+            const vm = memberFor(a.target, prop, "string", ' = "' + csStr(cur) + '";');
+            if (vm) lines.push("        " + vm + ' = "' + csStr(a.value || "") + '";');
+          }
         }
       });
       commandBodies[cmdName] = lines.length ? lines : ["        // TODO: add behavior actions in the Behaviors panel"];

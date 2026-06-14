@@ -38,6 +38,37 @@ test("the guidance names the right idiom for each kind", () => {
   includes(by.plain.gotcha, "InlineData", "plain warns about InlineData constants");
 });
 
+/* ---------- "create the xUnit project" walkthrough ---------- */
+const PROJECT_GUIDE = require("../data/testlab-project-guide.js");
+
+test("project guide is a complete, ordered xUnit-project walkthrough", () => {
+  const pg = PROJECT_GUIDE;
+  ok(pg && typeof pg.title === "string" && pg.title, "has a title");
+  ok(typeof pg.intro === "string" && pg.intro.length > 10, "has an intro");
+  ok(Array.isArray(pg.steps) && pg.steps.length >= 4, ">=4 steps");
+  pg.steps.forEach((s) => {
+    ok(s && typeof s.cmd === "string" && s.cmd.trim(), "each step has a command");
+    ok(typeof s.note === "string" && s.note.trim(), "each step has a note");
+  });
+  ok(Array.isArray(pg.gotchas) && pg.gotchas.length >= 2, ">=2 gotchas");
+});
+
+test("project guide names the essential dotnet commands in order", () => {
+  const cmds = PROJECT_GUIDE.steps.map((s) => s.cmd).join("\n");
+  includes(cmds, "dotnet new xunit", "creates the xunit project");
+  includes(cmds, "reference ExamApp", "references the app under test (the key step)");
+  includes(cmds, "Avalonia.Headless.XUnit", "adds the headless package for UI tests");
+  includes(cmds, "dotnet test", "runs the tests");
+  /* the 'reference' step must come before 'dotnet test' */
+  ok(cmds.indexOf("reference ExamApp") < cmds.indexOf("dotnet test"), "reference precedes test run");
+});
+
+test("project guide flags the offline restore and namespace gotchas", () => {
+  const g = PROJECT_GUIDE.gotchas.join(" ");
+  ok(/offline/i.test(g), "warns about offline restore");
+  ok(/namespace/i.test(g), "warns that namespaces must line up");
+});
+
 /* ---------- rendering: guide panel + coverage in the live module ---------- */
 /* a fresh Test Lab UI module over a minimal localStorage + DOM stub */
 function freshUI() {
@@ -58,6 +89,7 @@ function freshUI() {
   require("../data/testlab-core.js");
   require("../data/testlab-examples.js");
   require("../data/testlab-guide.js");
+  require("../data/testlab-project-guide.js");
   delete require.cache[require.resolve("../data/testlab.js")];
   const UI = require("../data/testlab.js");
   return { els, UI, TL: global.TL };
@@ -72,6 +104,17 @@ test("the guide toggle is closed by default and opens on demand", () => {
   page = f.UI.render();
   includes(page, "tl-guide-card", "guide cards shown after toggle");
   includes(page, "[AvaloniaFact]", "a guide snippet is rendered");
+});
+
+test("the create-xUnit-project guide is collapsed by default and opens on demand", () => {
+  const f = freshUI();
+  let page = f.UI.render();
+  includes(page, "Create the xUnit test project", "project guide toggle present");
+  ok(page.indexOf("tl-projguide-steps") === -1, "project steps hidden until opened");
+  f.TL.toggleProjectGuide();
+  page = f.UI.render();
+  includes(page, "tl-projguide-steps", "project steps shown after toggle");
+  includes(page, "dotnet new xunit", "the project commands are rendered");
 });
 
 test("loading a worked example shows a coverage panel with assert + TODO counts", () => {

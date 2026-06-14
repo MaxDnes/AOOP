@@ -52,6 +52,27 @@
         if (i < n) { blank(i); blank(i + 1); i += 2; }
         continue;
       }
+      /* C# raw string literal: optional `$`/`@` prefixes, then 3+ double-quotes,
+         closed by a run of at least that many quotes. Must precede the normal
+         string arm, which would mis-handle `"""` as an empty `""` + an open `"`
+         and leak the multi-line body (parsed as fake code). */
+      var rk = i;
+      while (src[rk] === "$" || src[rk] === "@") rk++;
+      if (src[rk] === '"' && src[rk + 1] === '"' && src[rk + 2] === '"') {
+        var openLen = 0, os = rk;
+        while (src[os] === '"') { os++; openLen++; }
+        for (var rb = i; rb < os; rb++) blank(rb);
+        var rp = os;
+        while (rp < n) {
+          if (src[rp] === '"') {
+            var run = 0, rs = rp;
+            while (src[rp] === '"') { blank(rp); rp++; run++; }
+            if (run >= openLen) break;            /* closing fence */
+          } else { blank(rp); rp++; }
+        }
+        i = rp;
+        continue;
+      }
       if (c === '"' || ((c === "@" || c === "$") && (d === '"' || ((d === "@" || d === "$") && src[i + 2] === '"')))) {
         var j = i;
         var verbatim = false;
@@ -290,23 +311,27 @@
     var cm = ctorRe.exec(strippedBody);
     if (cm) cls.ctorParams = parseParams(cm[1]);
 
-    /* ---- public methods (exclude ctor, commands already captured) ---- */
+    /* ---- public methods (exclude ctor, commands already captured) ----
+       `static` (and other modifiers) may appear in any order before the return
+       type, so the modifier group is repeatable; a static method is called via
+       the class name, not an instance, so we record isStatic. */
     var commandMethodNames = {};
     cls.commands.forEach(function (c) { commandMethodNames[c.method] = true; });
-    var methRe = /\bpublic\s+(?:virtual\s+|override\s+|sealed\s+|new\s+)?(?:async\s+)?([\w<>,\.\?\[\]]+)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:where\b[^{;]*)?(\{|=>|;)/g;
+    var methRe = /\bpublic\s+(?:static\s+|virtual\s+|override\s+|sealed\s+|new\s+|async\s+)*([\w<>,\.\?\[\]]+)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:where\b[^{;]*)?(\{|=>|;)/g;
     while ((m = methRe.exec(strippedBody))) {
       var rtype = m[1];
       var name = m[2];
       if (name === cls.name) continue;                 /* ctor */
       if (rtype === "class" || rtype === "void" && name === cls.name) continue;
       if (/^(get|set|init|add|remove|if|for|foreach|while|switch|return|using|lock)$/.test(name)) continue;
-      var isAsyncM = /\basync\b/.test(strippedBody.slice(Math.max(0, m.index), m.index + m[0].length)) ||
-        /^(Task|ValueTask)\b/.test(rtype);
+      var methHead = strippedBody.slice(Math.max(0, m.index), m.index + m[0].length);
+      var isAsyncM = /\basync\b/.test(methHead) || /^(Task|ValueTask)\b/.test(rtype);
       cls.methods.push({
         name: name,
         returnType: rtype,
         params: parseParams(m[3]),
         isAsync: isAsyncM,
+        isStatic: /\bstatic\b/.test(methHead.slice(0, methHead.indexOf("(") === -1 ? methHead.length : methHead.indexOf("("))),
         isCommandBacking: !!commandMethodNames[name],
       });
     }
@@ -335,8 +360,25 @@
 
   function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
+  /* The namespace a type at `idx` lives in: the nearest `namespace X.Y` declared
+     before idx (works for both file-scoped `namespace X;` and block-scoped
+     `namespace X { ... }`). Returns null when none was declared, so callers fall
+     back to the ExamApp default. `text` is the stripped source. */
+  function namespaceAt(text, idx) {
+    var re = /\bnamespace\s+([A-Za-z_][\w.]*)/g;
+    var m, ns = null;
+    while ((m = re.exec(text))) {
+      if (m.index >= idx) break;
+      ns = m[1];
+    }
+    return ns;
+  }
+
   /* class/interface header parse from a declaration line */
-  var TYPE_DECL_RE = /\b(?:public\s+|internal\s+|abstract\s+|sealed\s+|static\s+|partial\s+)*\b(class|interface|record)\s+([A-Za-z_]\w*)\s*(?:<[^>]*>)?\s*(?::\s*([^\{]+))?/g;
+  /* Groups: 1=kind, 2=name, 3=type-params (generics), 4=primary-ctor params,
+     5=base list. `record struct`/`record class` are matched as compound kinds so
+     the name capture doesn't swallow the second keyword. */
+  var TYPE_DECL_RE = /\b(?:public\s+|internal\s+|abstract\s+|sealed\s+|static\s+|partial\s+|readonly\s+|file\s+)*\b(record\s+struct|record\s+class|class|interface|record|struct)\s+([A-Za-z_]\w*)\s*(?:<([^>]*)>)?\s*(?:\(([^)]*)\))?\s*(?::\s*([^\{]+))?/g;
 
   function parse(files) {
     var model = { classes: [], interfaces: [], usesToolkit: false };
@@ -348,9 +390,11 @@
       var re = new RegExp(TYPE_DECL_RE.source, "g");
       var m;
       while ((m = re.exec(stripped))) {
-        var kind = m[1];
+        var kind = m[1].replace(/\s+/g, " ");        /* "class" | "record struct" | ... */
         var name = m[2];
-        var inherit = (m[3] || "").trim();
+        var typeParams = (m[3] || "").trim();        /* generics: "T" / "TKey, TValue" */
+        var primaryCtor = m[4];                        /* primary-ctor / positional record params, or undefined */
+        var inherit = (m[5] || "").trim();
         var bases = inherit ? inherit.split(",").map(function (s) { return s.trim().replace(/<.*$/, ""); }).filter(Boolean) : [];
         var baseType = null, interfaces = [];
         bases.forEach(function (b) {
@@ -359,7 +403,11 @@
           else interfaces.push(b);
         });
         var lineStart = stripped.lastIndexOf("\n", m.index) + 1;
-        var isPartial = /\bpartial\b/.test(stripped.slice(lineStart, m.index + m[0].length));
+        var declHead = stripped.slice(lineStart, m.index + m[0].length);
+        var isPartial = /\bpartial\b/.test(declHead);
+        var isAbstract = /\babstract\b/.test(declHead);
+        var isStatic = /\bstatic\b/.test(declHead);
+        var ns = namespaceAt(stripped, m.index);
         var span = findSpan(stripped, re.lastIndex);
 
         if (kind === "interface") {
@@ -367,6 +415,7 @@
           model.interfaces.push({
             name: name,
             file: f.name,
+            namespace: ns,
             members: parseInterfaceMembers(membersText),
           });
         } else {
@@ -377,6 +426,15 @@
           });
           cls.file = f.name;
           cls.kind = kind;
+          cls.namespace = ns;
+          cls.isAbstract = isAbstract;
+          cls.isStatic = isStatic;
+          cls.typeParams = typeParams ? typeParams.split(",").map(function (s) { return s.trim(); }).filter(Boolean) : [];
+          /* a primary constructor / positional record supplies ctor params when
+             the body has no explicit constructor (avoids `new Foo()` with required args) */
+          if ((!cls.ctorParams || !cls.ctorParams.length) && primaryCtor != null && primaryCtor.trim()) {
+            cls.ctorParams = parseParams(primaryCtor);
+          }
           model.classes.push(cls);
         }
       }
@@ -530,9 +588,43 @@
     return lines.join("\n");
   }
 
-  /* sut construction lines + the set of fake classes needed */
+  /* closed-generic suffix for construction: Box<T> -> "<object>", Map<K,V> ->
+     "<object, object>". Generic classes are still constructable in a smoke test
+     by closing every type parameter with object. */
+  function genericSuffix(cls) {
+    var n = (cls.typeParams || []).length;
+    if (!n) return "";
+    var a = [];
+    for (var i = 0; i < n; i++) a.push("object");
+    return "<" + a.join(", ") + ">";
+  }
+
+  /* The C# namespace whose `using` the generated test needs to see the class:
+     the class's own declared namespace, else the ExamApp default (ViewModels for
+     a toolkit VM, ExamApp otherwise). Fixes tests that paste a class in a real
+     namespace (e.g. ExamApp.Services) getting `using ExamApp;` and not compiling. */
+  function sutNamespace(cls) {
+    if (cls && cls.namespace) return cls.namespace;
+    return (cls && cls.isToolkitViewModel) ? "ExamApp.ViewModels" : "ExamApp";
+  }
+
+  /* sut construction lines + the set of fake classes needed.
+     Returns: { ctorCall, fakes, receiver, construct, blockReason }
+       receiver   — what to call methods on ("sut", or the class name for a
+                    static class).
+       construct  — whether to emit `var sut = ctorCall;` (false for a static
+                    class: nothing to construct).
+       blockReason— set ("abstract") when the type cannot be instantiated at all,
+                    so callers emit a compiling note instead of `new Abstract()`. */
   function buildSut(cls) {
     var fakes = [];
+    if (cls.isStatic) {
+      /* a static class is never instantiated: call members on the class name */
+      return { ctorCall: null, fakes: fakes, receiver: cls.name, construct: false, blockReason: null };
+    }
+    if (cls.isAbstract) {
+      return { ctorCall: null, fakes: fakes, receiver: "sut", construct: false, blockReason: "abstract" };
+    }
     var args = cls.ctorParams.map(function (p) {
       if (p.isInterface) {
         var fk = fakeClassFor(p, "");
@@ -541,8 +633,20 @@
       }
       return dummyArg(p.type);
     });
-    var ctorCall = "new " + cls.name + "(" + args.join(", ") + ")";
-    return { ctorCall: ctorCall, fakes: fakes };
+    var ctorCall = "new " + cls.name + genericSuffix(cls) + "(" + args.join(", ") + ")";
+    return { ctorCall: ctorCall, fakes: fakes, receiver: "sut", construct: true, blockReason: null };
+  }
+
+  /* the receiver for a plain-path method call: the instance var "sut", or the
+     class name when the type is static (no instance exists). */
+  function plainRecv(sut) { return sut.construct ? "sut" : sut.receiver; }
+
+  /* a value type can never be null, so Assert.NotNull on it is vacuous and trips
+     xUnit's xUnit2002 analyzer. A nullable value type (T?) CAN be null. */
+  function isValueType(type) {
+    var t = String(type || "").replace(/\s/g, "");
+    if (/\?$/.test(t)) return false;
+    return /^(int|long|short|byte|sbyte|uint|ulong|ushort|double|float|decimal|bool|char|DateTime|TimeSpan|Guid)$/.test(t);
   }
 
   /* ---- Generator 1: plain xUnit per class ---- */
@@ -554,21 +658,46 @@
     L.push("public class " + cls.name + "Tests");
     L.push("{");
 
-    if (!pubMethods.length) {
+    if (sut.blockReason === "abstract") {
+      /* an abstract type cannot be `new`ed; emit a compiling placeholder that
+         points the student at a concrete subclass instead of `new Abstract()`. */
+      L.push("    // " + cls.name + " is abstract: it cannot be constructed directly.");
+      L.push("    // Test a concrete subclass (or a small test double that derives from it).");
       L.push("    [Fact]");
-      L.push("    public void Construction_WithValidArguments_Succeeds()");
+      L.push("    public void " + cls.name + "_IsAbstract_TestViaAConcreteSubclass()");
       L.push("    {");
-      L.push("        // Arrange & Act");
-      L.push("        var sut = " + sut.ctorCall + ";");
-      L.push("");
-      L.push("        // Assert");
-      L.push("        Assert.NotNull(sut);");
+      L.push("        // TODO: construct a concrete subclass of " + cls.name + " and assert its behaviour.");
+      L.push("        Assert.True(typeof(" + cls.name + ").IsAbstract);");
       L.push("    }");
+      L.push("}");
+      var ua = dedup(["using System;", "using " + sutNamespace(cls) + ";", "using Xunit;"]);
+      return { fileName: cls.name + "Tests.cs", code: fileHeader(ua) + L.join("\n") + "\n" };
     }
 
-    pubMethods.forEach(function (mt, mi) {
+    if (!pubMethods.length) {
+      L.push("    [Fact]");
+      if (sut.construct) {
+        L.push("    public void Construction_WithValidArguments_Succeeds()");
+        L.push("    {");
+        L.push("        // Arrange & Act");
+        L.push("        var sut = " + sut.ctorCall + ";");
+        L.push("");
+        L.push("        // Assert");
+        L.push("        Assert.NotNull(sut);");
+        L.push("    }");
+      } else {
+        /* static class with no detected public methods */
+        L.push("    public void " + cls.name + "_HasNoDetectedPublicMethods()");
+        L.push("    {");
+        L.push("        // TODO: " + cls.name + " is static; call " + cls.name + ".SomeMethod(...) and assert the result.");
+        L.push("        Assert.True(true);");
+        L.push("    }");
+      }
+    }
+
+    pubMethods.forEach(function (mt) {
       emitMethodFact(L, cls, mt, sut);
-      /* [Theory] for 1-2 primitive params */
+      /* [Theory] for 1-2 primitive params (sync only) */
       var prims = mt.params.filter(function (p) { return isPrimitive(p.type); });
       if (prims.length >= 1 && prims.length <= 2 && mt.params.length === prims.length && !mt.isAsync) {
         emitMethodTheory(L, cls, mt, sut);
@@ -585,7 +714,7 @@
     while (L.length && L[L.length - 1] === "") L.pop();
     L.push("}");
 
-    var usings = ["using ExamApp;", "using Xunit;"];
+    var usings = ["using " + sutNamespace(cls) + ";", "using Xunit;"];
     if (sut.fakes.length || cls.methods.some(function (m) { return returnCategory(m.returnType) === "collection"; }) ||
         cls.ctorParams.some(function (p) { return /List|IEnumerable|ICollection/.test(p.type); })) {
       usings.unshift("using System.Collections.Generic;");
@@ -599,60 +728,57 @@
 
   function emitMethodFact(L, cls, mt, sut) {
     var cat = returnCategory(mt.returnType);
+    var recv = plainRecv(sut);
+    var aw = mt.isAsync ? "await " : "";
+    var ret = mt.isAsync ? "async Task " : "void ";
     if (L[L.length - 1] !== "{") L.push("");
     if (cat === "bool") {
       /* True/False pair of [Fact]s: one for each expected outcome.
          Inputs that force each branch need the author's judgement -> TODO. */
-      L.push("    [Fact]");
-      L.push("    public void " + mt.name + "_WhenConditionHolds_ReturnsTrue()");
-      L.push("    {");
-      L.push("        // Arrange");
-      L.push("        var sut = " + sut.ctorCall + ";");
-      L.push("        // TODO: choose arguments / state for which " + mt.name + " should be true");
-      L.push("");
-      L.push("        // Act");
-      L.push("        var result = sut." + callExpr(mt) + ";");
-      L.push("");
-      L.push("        // Assert");
-      L.push("        Assert.True(result);");
-      L.push("    }");
-      L.push("");
-      L.push("    [Fact]");
-      L.push("    public void " + mt.name + "_WhenConditionFails_ReturnsFalse()");
-      L.push("    {");
-      L.push("        // Arrange");
-      L.push("        var sut = " + sut.ctorCall + ";");
-      L.push("        // TODO: choose arguments / state for which " + mt.name + " should be false");
-      L.push("");
-      L.push("        // Act");
-      L.push("        var result = sut." + callExpr(mt) + ";");
-      L.push("");
-      L.push("        // Assert");
-      L.push("        Assert.False(result);");
-      L.push("    }");
+      [["WhenConditionHolds_ReturnsTrue", "true", "Assert.True(result);"],
+       ["WhenConditionFails_ReturnsFalse", "false", "Assert.False(result);"]].forEach(function (pair, idx) {
+        if (idx) L.push("");
+        L.push("    [Fact]");
+        L.push("    public " + ret + mt.name + "_" + pair[0] + "()");
+        L.push("    {");
+        L.push("        // Arrange");
+        if (sut.construct) L.push("        var sut = " + sut.ctorCall + ";");
+        L.push("        // TODO: choose arguments / state for which " + mt.name + " should be " + pair[1]);
+        L.push("");
+        L.push("        // Act");
+        L.push("        var result = " + aw + recv + "." + callExpr(mt) + ";");
+        L.push("");
+        L.push("        // Assert");
+        L.push("        " + pair[2]);
+        L.push("    }");
+      });
       return;
     }
     L.push("    [Fact]");
-    L.push("    public void " + mt.name + "_" + scenarioName(mt) + "_" + expectedName(cat) + "()");
+    L.push("    public " + ret + mt.name + "_" + scenarioName(mt) + "_" + expectedName(cat) + "()");
     L.push("    {");
     L.push("        // Arrange");
-    L.push("        var sut = " + sut.ctorCall + ";");
+    if (sut.construct) L.push("        var sut = " + sut.ctorCall + ";");
     L.push("");
     if (cat === "void") {
       L.push("        // Act");
-      L.push("        " + (mt.isAsync ? "// await " : "") + "sut." + callExpr(mt) + ";");
+      L.push("        " + aw + recv + "." + callExpr(mt) + ";");
       L.push("");
       L.push("        // Assert");
       var affected = cls.properties.filter(function (p) { return p.name !== mt.name; })[0];
-      if (affected) {
+      if (affected && !isValueType(affected.type)) {
         L.push("        // TODO: assert the state " + mt.name + " is expected to change");
-        L.push("        Assert.NotNull(sut." + affected.name + ");");
+        L.push("        Assert.NotNull(" + recv + "." + affected.name + ");");
+      } else if (affected) {
+        /* value-type property: NotNull is vacuous (xUnit2002), so read + TODO */
+        L.push("        // TODO: assert the expected value of " + recv + "." + affected.name + " after " + mt.name);
+        L.push("        _ = " + recv + "." + affected.name + ";");
       } else {
         L.push("        // TODO: assert on the observable effect of " + mt.name + " (no public property detected)");
       }
     } else {
       L.push("        // Act");
-      L.push("        var result = sut." + callExpr(mt) + ";");
+      L.push("        var result = " + aw + recv + "." + callExpr(mt) + ";");
       L.push("");
       L.push("        // Assert");
       if (cat === "numeric") {
@@ -669,35 +795,32 @@
     L.push("    }");
   }
 
+  /* sync-only (caller guards !mt.isAsync): a [Theory] over 1-2 primitive params. */
   function emitMethodTheory(L, cls, mt, sut) {
     var cat = returnCategory(mt.returnType);
+    var recv = plainRecv(sut);
     L.push("");
-    /* build 2-3 inline rows with edge values per param */
     var rows = inlineRows(mt.params);
-    rows.forEach(function (r) { L.push("    [InlineData(" + r + ")]"); });
     var sig = mt.params.map(function (p) { return paramCsType(p.type) + " " + p.name; }).join(", ");
-    L.push("    [Theory]");
-    /* xUnit wants [Theory] above [InlineData]; reorder by re-emitting */
-    L.splice(L.length - 1 - rows.length, rows.length + 1); /* remove what we just pushed */
     L.push("    [Theory]");
     rows.forEach(function (r) { L.push("    [InlineData(" + r + ")]"); });
     L.push("    public void " + mt.name + "_VariousInputs_BehavesConsistently(" + sig + ")");
     L.push("    {");
     L.push("        // Arrange");
-    L.push("        var sut = " + sut.ctorCall + ";");
+    if (sut.construct) L.push("        var sut = " + sut.ctorCall + ";");
     L.push("");
     L.push("        // Act");
     var callArgs = mt.params.map(function (p) { return p.name; }).join(", ");
     if (cat === "void") {
-      L.push("        " + (mt.isAsync ? "// await " : "") + "sut." + mt.name + "(" + callArgs + ");");
+      L.push("        " + recv + "." + mt.name + "(" + callArgs + ");");
       L.push("");
       L.push("        // Assert");
       L.push("        // TODO: assert the effect for each row");
     } else {
-      L.push("        var result = sut." + mt.name + "(" + callArgs + ");");
+      L.push("        var result = " + recv + "." + mt.name + "(" + callArgs + ");");
       L.push("");
       L.push("        // Assert");
-      if (cat === "bool") L.push("        // TODO: assert the expected boolean per row");
+      if (cat === "bool") L.push("        // TODO: assert the expected boolean per row\n        _ = result;");
       else if (cat === "numeric") L.push("        // TODO: assert the expected number per row\n        _ = result;");
       else if (cat === "string") L.push("        // TODO: assert the expected string per row\n        _ = result;");
       else { L.push("        Assert.NotNull(result);"); }
@@ -856,7 +979,7 @@
 
     var usings = ["using System;", "using System.Collections.Generic;"];
     if (cls.commands.some(function (c) { return c.isAsync; })) usings.push("using System.Threading.Tasks;");
-    usings.push("using ExamApp.ViewModels;");
+    usings.push("using " + sutNamespace(cls) + ";");
     usings.push("using Xunit;");
     usings = dedup(usings);
 
@@ -887,6 +1010,10 @@
   function genHeadless(opts) {
     opts = opts || {};
     var vm = opts.viewModel || "MainWindowViewModel";
+    /* construct the VM the same way the unit generators do (ctor deps -> fakes),
+       falling back to a bare `new VM()` when the caller passed no ctor call. */
+    var vmCtor = opts.vmCtorCall || ("new " + vm + "()");
+    var vmFakes = opts.vmFakes || [];
     /* G9: view class defaults to MainWindow, not <VM stripped of "ViewModel"> */
     var win = opts.viewClass || opts.window || "MainWindow";
     var cmd = opts.command || null;       /* a RelayCommand member, for the comment only */
@@ -968,7 +1095,7 @@
       "    public void ClickingButton_UpdatesBoundText()",
       "    {",
       "        // Arrange: build the VM and show the window (Show() is required, even headless)",
-      "        var vm = new " + vm + "();",
+      "        var vm = " + vmCtor + ";",
       "        var window = new " + win + " { DataContext = vm };",
       "        window.Show();",
       "",
@@ -990,6 +1117,13 @@
         : "        // TODO: assert the expected text, e.g. Assert.Equal(\"100\", text!.Text);"),
       "        Assert.NotNull(text!.Text);",
       "    }",
+    ]).concat(
+      /* embed the same interface fakes the VM ctor needs, so the construction
+         line above compiles when the VM has dependencies. */
+      vmFakes.length
+        ? [""].concat(vmFakes.map(function (fk) { return indentBlock(fk.code, ""); }))
+        : []
+    ).concat([
       "}",
       "",
     ]).join("\n");
@@ -1110,7 +1244,7 @@
 
     var usings = dedup([
       "using System.Threading.Tasks;",
-      cls.isToolkitViewModel ? "using ExamApp.ViewModels;" : "using ExamApp;",
+      "using " + sutNamespace(cls) + ";",
       "using Xunit;",
     ]);
 
@@ -1189,7 +1323,7 @@
 
     var usings = dedup([
       "using System.Threading.Tasks;",
-      "using ExamApp.ViewModels;",
+      "using " + sutNamespace(cls) + ";",
       "using Xunit;",
     ]);
 
@@ -1740,6 +1874,13 @@
   /* Build the per-class per-function test file with labeled P/N/E trios.
      `selection` filters which functions are emitted (see isSelected). */
   function genPerFunctionClass(cls, selection) {
+    /* static / abstract types are not constructable as instances and have no
+       command/P-N-E shape; reuse genPlain, which already emits static-receiver
+       calls (ClassName.Method) and the abstract scaffold — and compiles. */
+    if (cls.isStatic || cls.isAbstract) {
+      var pf = genPlain(cls);
+      return { fileName: pf.fileName, code: pf.code, perFunction: true, className: cls.name };
+    }
     var sut = buildSut(cls);
     var fns = listFunctions(cls).filter(function (fn) { return isSelected(selection, fn.key); });
     var L = [];
@@ -1778,8 +1919,7 @@
 
     var usings = ["using System;", "using System.Collections.Generic;"];
     if (anyAsync || cls.commands.some(function (c) { return c.isAsync; })) usings.push("using System.Threading.Tasks;");
-    if (cls.isToolkitViewModel) usings.push("using ExamApp.ViewModels;");
-    else usings.push("using ExamApp;");
+    usings.push("using " + sutNamespace(cls) + ";");
     usings.push("using Xunit;");
     usings = dedup(usings);
 
@@ -1946,7 +2086,7 @@
      [AvaloniaFact]. No Window/View types are referenced, so it compiles and
      runs green in the exported standalone test project. */
   function genHeadlessSmoke(cls) {
-    var ns = cls.isToolkitViewModel ? "ExamApp.ViewModels" : null;
+    var ns = sutNamespace(cls);
     var L = [];
     L.push("using Avalonia.Headless.XUnit;");
     if (ns) L.push("using " + ns + ";");
@@ -2076,7 +2216,11 @@
     }
 
     testable.forEach(function (cls) {
-      var isVm = cls.isToolkitViewModel;
+      /* an abstract or static type can't be `new`ed / has no command shape, so
+         the VM + async generators (which construct an instance) don't apply; the
+         per-function/plain path already emits a compiling scaffold for it. */
+      var instanceable = !cls.isAbstract && !cls.isStatic;
+      var isVm = cls.isToolkitViewModel && instanceable;
       var hasAsync = cls.commands.some(function (c) { return c.isAsync; }) ||
         cls.methods.some(function (m) { return m.isAsync; });
       var counterLike = cls.commands.some(function (c) { return /^(start|stop|reset|resume)/i.test(c.method); });
@@ -2102,18 +2246,27 @@
             "public class " + cls.name + "PlainTests");
           out.push(plain);
         }
-      } else {
-        if (options.plain) out.push(genPlain(cls));
+      } else if (options.plain) {
+        /* non-VM plain tests. When perFunction is ALSO on it already emitted a
+           <Class>Tests.cs; rename this one to <Class>PlainTests.cs so the two
+           files don't collide (CS0101 duplicate type) — mirrors the VM branch. */
+        var plainNV = genPlain(cls);
+        if (options.perFunction) {
+          plainNV.fileName = cls.name + "PlainTests.cs";
+          plainNV.code = plainNV.code.replace("public class " + cls.name + "Tests",
+            "public class " + cls.name + "PlainTests");
+        }
+        out.push(plainNV);
       }
 
-      if (options.async && (hasAsync || counterLike)) out.push(genAsync(cls));
+      if (options.async && instanceable && (hasAsync || counterLike)) out.push(genAsync(cls));
     });
 
     if (options.headless) {
       /* derive the VM name from the model; the VIEW class does NOT come from
          stripping "ViewModel" (G9) — that produced types like `Counter` that
          don't exist. It defaults to MainWindow, overridable via options. */
-      var vmCls = testable.filter(function (c) { return c.isToolkitViewModel; })[0];
+      var vmCls = testable.filter(function (c) { return c.isToolkitViewModel && !c.isAbstract && !c.isStatic; })[0];
       var vmName = vmCls ? vmCls.name : "MainWindowViewModel";
       var winName = options.viewClass || "MainWindow";
       var firstCmd = vmCls && vmCls.commands[0] ? vmCls.commands[0] : null;
@@ -2122,11 +2275,17 @@
          is misleading (one click starts the loop), so emit a single Start +
          Stop click instead — name the breaker command's member when one exists. */
       var loopingStart = !!(firstCmd && vmCls && isLoopingStart(firstCmd, vmCls.commands));
+      /* build the VM the SAME way the unit generators do, so a ctor with
+         dependencies becomes `new VM(new FakeRepo())`, not a non-compiling
+         `new VM()`. The fakes ride along to be embedded in the test class. */
+      var vmSut = vmCls ? buildSut(vmCls) : null;
       genHeadless({
         viewModel: vmName,
         viewClass: winName,
         command: driveCmd,
         loopingStart: loopingStart,
+        vmCtorCall: vmSut ? vmSut.ctorCall : null,
+        vmFakes: vmSut ? vmSut.fakes : [],
         /* stopButton stays a placeholder Name="..." the student renames; the
            breaker is a command member, not a control name, so we don't use it. */
         stopButton: options.stopButton,
