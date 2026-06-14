@@ -593,7 +593,18 @@
   function findRootField(model, fieldKey) {
     var root = model.byName[model.rootClass];
     if (!root) return null;
-    return root.fields.filter(function (f) { return f.key === fieldKey || f.property === fieldKey; })[0] || null;
+    var exact = root.fields.filter(function (f) { return f.key === fieldKey || f.property === fieldKey; })[0];
+    if (exact) return exact;
+    /* case-insensitive fallback: a preset row (camelCase, e.g. "releaseYear") referencing
+       real data with PascalCase keys (e.g. "ReleaseYear") would otherwise resolve to null,
+       degrade the typed-literal path to "string", and emit string.Compare on an int field
+       (CS0019). Match by key or property ignoring case so stale/cross-cased references still
+       resolve to the correct TYPED field. */
+    var lk = String(fieldKey == null ? "" : fieldKey).toLowerCase();
+    if (!lk) return null;
+    return root.fields.filter(function (f) {
+      return String(f.key).toLowerCase() === lk || String(f.property).toLowerCase() === lk;
+    })[0] || null;
   }
 
   /* nested field on the element type of a collection: "TravelHistory[].ArrivalDate"
@@ -728,8 +739,29 @@
     return null;   /* not a clean numeric/date literal */
   }
 
+  /* a bare numeric C# literal for a value, or null when it is not a clean number
+     (used by HAVING thresholds and the pick-a-group key literal). */
+  function numLit(v) {
+    var s = String(v == null ? "" : v).trim();
+    return /^-?(\d+(\.\d+)?|\.\d+)$/.test(s) ? s : null;
+  }
+
+  /* optional terminal that reduces a filtered list to a scalar/element instead of a
+     List<T>: count -> .Count() (int), any -> .Any() (bool), first -> .FirstOrDefault()
+     (the first matching element, or null). Unset -> .ToList() (byte-unchanged). The
+     scalar/element flags ride back through buildQuery's existing print + output paths
+     (the same ones list-method Count/First already use). */
+  function reduceTail(row) {
+    var rd = row && row.reduce;
+    if (rd === "count") return { tail: "\n    .Count()", scalar: true };
+    if (rd === "any")   return { tail: "\n    .Any()", scalar: true };
+    if (rd === "first") return { tail: "\n    .FirstOrDefault()", element: true };
+    return { tail: "\n    .ToList()" };
+  }
+
   function genFilterEquals(model, row, overrides) {
-    return { expr: "source\n    .Where(s => " + filterCmp(model, row, overrides) + ")\n    .ToList()" };
+    var rt = reduceTail(row);
+    return { expr: "source\n    .Where(s => " + filterCmp(model, row, overrides) + ")" + rt.tail, scalar: rt.scalar, element: rt.element };
   }
 
   /* The bare boolean comparison string for a scalar filter row (no Where/ToList
@@ -816,14 +848,16 @@
         cmp = "(" + ref + " ?? \"\").Contains(" + val + ")";
       }
     }
-    return { expr: "source\n    .Where(s => " + cmp + ")\n    .ToList()" };
+    var rt = reduceTail(row);
+    return { expr: "source\n    .Where(s => " + cmp + ")" + rt.tail, scalar: rt.scalar, element: rt.element };
   }
 
   function genFilterEmptyCollection(model, row, overrides) {
     /* "empty or missing": null or Count == 0, matching
        `(r.DietaryTags?.Count ?? 0) == 0` */
     var cnt = countExpr(model, row.field, overrides);
-    return { expr: "source\n    .Where(s => (" + cnt + ") == 0)\n    .ToList()" };
+    var rt = reduceTail(row);
+    return { expr: "source\n    .Where(s => (" + cnt + ") == 0)" + rt.tail, scalar: rt.scalar, element: rt.element };
   }
 
   function genFilterNestedAny(model, row, overrides) {
@@ -863,7 +897,8 @@
     var whereBody = anyExpr;
     var rootPred = rootPredicate(model, row.andWhere, overrides);
     if (rootPred) whereBody = rootPred + " && " + anyExpr;
-    return { expr: "source\n    .Where(s => " + whereBody + ")\n    .ToList()" };
+    var rt = reduceTail(row);
+    return { expr: "source\n    .Where(s => " + whereBody + ")" + rt.tail, scalar: rt.scalar, element: rt.element };
   }
 
   /* Build a root-level predicate string for a compound AND clause from an
@@ -921,9 +956,10 @@
   function genGroupAggregate(model, row, overrides) {
     var groupKey = fieldRef(model, row.field, overrides);
     var f = findRootField(model, row.field);
+    var keyIsString = !!(f && !f.isCollection && /string/.test(f.baseType));
     /* null-coalesce the group key so a null type doesn't crash GroupBy, matching
        the spaceships solution `GroupBy(s => s.Type ?? "Unknown")` */
-    if (f && !f.isCollection && /string/.test(f.baseType)) groupKey = groupKey + " ?? \"Unknown\"";
+    if (keyIsString) groupKey = groupKey + " ?? \"Unknown\"";
     var agg = row.aggregate || "Count";
     var valueExpr;
     if (agg === "Count") {
@@ -951,8 +987,22 @@
     else if (row.sort === "valueAsc") order = "\n    .OrderBy(x => x.Value)";
     else if (row.sort === "keyAsc") order = "\n    .OrderBy(x => x.Key)";
     else if (row.sort === "keyDesc") order = "\n    .OrderByDescending(x => x.Key)";
+    /* optional HAVING + pick-a-group: keep only the group whose Key equals onlyKey,
+       and/or groups whose aggregate Value passes a comparison (count/value > N …).
+       Emitted as a `.Where(x => …)` between Select and the order, like SQL HAVING.
+       Both unset -> no Where (byte-unchanged). */
+    var conds = [];
+    if (row.onlyKey !== undefined && row.onlyKey !== null && String(row.onlyKey).trim() !== "") {
+      var kv = String(row.onlyKey).trim();
+      var keyLit = keyIsString ? csString(kv) : (numLit(kv) !== null ? numLit(kv) : csString(kv));
+      conds.push("x.Key == " + keyLit);
+    }
+    if (row.having && CMP_SYMBOL[row.having] && numLit(row.havingValue) !== null) {
+      conds.push("x.Value " + CMP_SYMBOL[row.having] + " " + numLit(row.havingValue));
+    }
+    var having = conds.length ? "\n    .Where(x => " + conds.join(" && ") + ")" : "";
     var expr = "source\n    .GroupBy(s => " + groupKey + ")\n" +
-      "    .Select(g => new { Key = g.Key, Value = " + valueExpr + " })" + order + "\n    .ToList()";
+      "    .Select(g => new { Key = g.Key, Value = " + valueExpr + " })" + having + order + "\n    .ToList()";
     return { expr: expr };
   }
 
@@ -1116,7 +1166,10 @@
   /* a row whose model needs a ToString() override: printing each item (ToString) or
      printing a single element (First/Last) reads best with all fields overridden. */
   function rowNeedsToString(row) {
-    if (!row || row.shape !== "list-method") return false;
+    if (!row) return false;
+    /* a filter reduced to its first match prints that element via ToString */
+    if (row.reduce === "first") return true;
+    if (row.shape !== "list-method") return false;
     var m = row.method || "toString";
     return m === "toString" || m === "first" || m === "last";
   }
@@ -1833,6 +1886,18 @@
     return rqStr(v);
   }
 
+  /* mirror reduceTail() in the runner: turn a filtered list result into the scalar
+     (count/any) or single element (first) the generated C# would produce, so the
+     "Run on data" panel and the populated results JSON match the code. */
+  function applyRunReduce(row, res) {
+    if (!res || !res.ok || !row || !row.reduce) return res;
+    var data = res.data || [];
+    if (row.reduce === "count") return { ok: true, scalar: true, value: data.length, columns: [], data: [], note: "Count = " + data.length };
+    if (row.reduce === "any")   return { ok: true, scalar: true, value: data.length > 0, columns: [], data: [], note: "Any = " + (data.length > 0) };
+    if (row.reduce === "first") return { ok: true, element: true, columns: res.columns, data: data.slice(0, 1), note: data.length ? ("first of " + data.length + " match(es)") : "no match" };
+    return res;
+  }
+
   function runQuery(model, row, rows, overrides) {
     overrides = overrides || {};
     rows = Array.isArray(rows) ? rows : [];
@@ -1840,7 +1905,7 @@
     try {
       if (shape === "filter-equals") {
         var out = rows.filter(function (it) { return rqEvalFilter(model, row, it, overrides); });
-        return { ok: true, columns: rqColumnsForRoot(model), data: out };
+        return applyRunReduce(row, { ok: true, columns: rqColumnsForRoot(model), data: out });
       }
       if (shape === "filter-contains") {
         var f = findRootField(model, row.field);
@@ -1855,12 +1920,12 @@
           if (f && f.isCollection) return Array.isArray(v) && v.some(match);
           return match(v);
         });
-        return { ok: true, columns: rqColumnsForRoot(model), data: res };
+        return applyRunReduce(row, { ok: true, columns: rqColumnsForRoot(model), data: res });
       }
       if (shape === "filter-empty-collection") {
         var cf = findRootField(model, row.field);
         var r2 = rows.filter(function (it) { var v = rqVal(it, cf); return !Array.isArray(v) || v.length === 0; });
-        return { ok: true, columns: rqColumnsForRoot(model), data: r2 };
+        return applyRunReduce(row, { ok: true, columns: rqColumnsForRoot(model), data: r2 });
       }
       if (shape === "filter-nested-any") {
         var coll = findRootField(model, row.collection);
@@ -1877,7 +1942,7 @@
             return rqStr(sv) === rqStr(row.value);
           });
         });
-        return { ok: true, columns: rqColumnsForRoot(model), data: r3 };
+        return applyRunReduce(row, { ok: true, columns: rqColumnsForRoot(model), data: r3 });
       }
       if (shape === "sort-by" || shape === "top-n") {
         var dir = row.direction === "asc" ? 1 : -1;
@@ -1919,6 +1984,24 @@
           }
           return { Key: g.key, Value: value };
         });
+        /* HAVING + pick-a-group: filter the grouped rows (before sorting) to match
+           the generated `.Where(x => …)`. onlyKey keeps one group; having compares
+           the aggregate value to a threshold. */
+        if (row.onlyKey !== undefined && row.onlyKey !== null && String(row.onlyKey).trim() !== "") {
+          var ok2 = String(row.onlyKey).trim();
+          data = data.filter(function (d) { return String(d.Key) === ok2; });
+        }
+        if (row.having && CMP_SYMBOL[row.having] && String(row.havingValue == null ? "" : row.havingValue).trim() !== "") {
+          var thr = Number(row.havingValue);
+          if (!isNaN(thr)) {
+            var hop = row.having;
+            data = data.filter(function (d) {
+              var v = d.Value;
+              return hop === "gt" ? v > thr : hop === "gte" ? v >= thr : hop === "lt" ? v < thr :
+                     hop === "lte" ? v <= thr : hop === "eq" ? v === thr : hop === "neq" ? v !== thr : true;
+            });
+          }
+        }
         if (row.sort === "valueDesc") data.sort(function (a, b) { return b.Value - a.Value; });
         else if (row.sort === "valueAsc") data.sort(function (a, b) { return a.Value - b.Value; });
         else if (row.sort === "keyAsc") data.sort(function (a, b) { return rqCompareKeys(a.Key, b.Key); });
@@ -2326,6 +2409,10 @@
       if (!key) return;
       var r = runQuery(model, row, dataRows, overrides);
       if (!r || !r.ok) { out[key] = null; return; }
+      /* a reduced filter writes a scalar (count/any) or a single element (first),
+         matching what the generated C# serializes, not a list. */
+      if (row.reduce === "count" || row.reduce === "any") { out[key] = r.value; return; }
+      if (row.reduce === "first") { out[key] = (r.data && r.data[0]) ? rqTypedObject(model, r.data[0], overrides) : null; return; }
       if (row.shape === "binary-search") { out[key] = (r.data && r.data[0]) ? rqTypedObject(model, r.data[0], overrides) : null; return; }
       if (ROOT_ROW_SHAPES[row.shape]) { out[key] = (r.data || []).map(function (it) { return rqTypedObject(model, it, overrides); }); return; }
       out[key] = r.data || [];   /* group-aggregate / most-frequent / select: plain records */

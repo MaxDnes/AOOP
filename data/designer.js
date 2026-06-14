@@ -252,6 +252,10 @@
     right.props["Grid.Row"] = 0; right.props["Grid.Column"] = 1; right.props.Margin = "6,0,0,8";
     right.props.SelectionMode = "Multiple";
     right.bindings.ItemsSource = "Ingredients";
+    /* P2.3: the right ListBox highlights the selected recipe's ingredients. Binding
+       SelectedItems gives the VM the ObservableCollection it drives from
+       OnSelectedRecipeChanged, so the full highlight scaffold is generated. */
+    right.bindings.SelectedItems = "SelectedIngredients";
     CORE.addChild(w, g.id, right);
 
     const gen = CORE.createNode("Button");
@@ -398,9 +402,9 @@
     const pp = parent ? (parent.props || {}) : {};
     const iw = (parent && parent.type === "WrapPanel") ? pp.ItemWidth : null;
     const ih = (parent && parent.type === "WrapPanel") ? pp.ItemHeight : null;
-    /* Line/Polygon are sized by their geometry (points), not Width/Height — applying
-       Width/Height here is what made a resized line a tiny diagonal in a big box. */
-    const geomSized = node.type === "Line" || node.type === "Polygon";
+    /* Line/Polygon/Path are sized by their geometry (points/data), not Width/Height —
+       applying Width/Height here is what made a resized line a tiny diagonal in a box. */
+    const geomSized = node.type === "Line" || node.type === "Polygon" || node.type === "Path";
     if (!geomSized && p.Width != null && p.Width !== "") s += "width:" + num(p.Width) + "px;";
     else if (!geomSized && iw != null && iw !== "") s += "width:" + num(iw) + "px;";
     if (!geomSized && p.Height != null && p.Height !== "") s += "height:" + num(p.Height) + "px;";
@@ -459,6 +463,18 @@
     const m = String(s == null ? "" : s).split(",").map(function (x) { return parseFloat(x); });
     return [isNaN(m[0]) ? 0 : m[0], isNaN(m[1]) ? 0 : m[1]];
   }
+  /* ORIGIN-ANCHORED extent of a set of points (Avalonia draws a shape's geometry in its
+     own coordinate space and the shape's bounds span from (0,0) to the geometry's max
+     extent — verified by headless layout). So the preview must draw points at their
+     LITERAL coordinates inside a box that starts at the element origin, not a box that
+     hugs the geometry. Anchoring at origin is what makes the designer preview match the
+     exported app pixel-for-pixel. */
+  function geomExtent(pairs, pad) {
+    pad = pad || 0;
+    let maxX = 0, maxY = 0;
+    (pairs || []).forEach(function (pt) { maxX = Math.max(maxX, pt[0]); maxY = Math.max(maxY, pt[1]); });
+    return { w: Math.max(1, Math.ceil(maxX + pad)), h: Math.max(1, Math.ceil(maxY + pad)) };
+  }
 
   /* sample data for typed-model previews so an items host shows 3 realistic rows
      ("Monday: Spaghetti", a colored swatch for IBrush) instead of empty gray strips */
@@ -500,10 +516,10 @@
   function canResize(node) {
     const def = CORE.CATALOG[node.type];
     if (!def) return false;
-    /* Line/Polygon are defined by their points, not Width/Height — showing resize
-       grips there just sets inert size props and leaves the shape unchanged (the
-       "broken line" bug). Edit their geometry (StartPoint/EndPoint/Points) instead. */
-    if (node.type === "Line" || node.type === "Polygon") return false;
+    /* Line/Polygon/Path are defined by their points/data, not Width/Height — showing
+       resize grips there just sets inert size props and leaves the shape unchanged (the
+       "broken shape" bug). Edit their geometry (StartPoint/EndPoint/Points/Data) instead. */
+    if (node.type === "Line" || node.type === "Polygon" || node.type === "Path") return false;
     const names = (def.props || []).map(function (pp) { return pp.name; });
     return names.indexOf("Width") !== -1 && names.indexOf("Height") !== -1;
   }
@@ -661,33 +677,36 @@
       if (node.type === "Rectangle" && p.RadiusX) style += "border-radius:" + num(p.RadiusX) + "px;";
       inner = chips(node, ["Fill"]);
     } else if (node.type === "Line") {
-      const a = parsePoint(p.StartPoint), z = parsePoint(p.EndPoint);
+      /* draw at LITERAL coords in an origin-anchored box so the preview matches the
+         exported Avalonia shape exactly (its bounds span (0,0)→max extent). */
+      const a = parsePoint(p.StartPoint != null ? p.StartPoint : "0,0");
+      const z = parsePoint(p.EndPoint != null ? p.EndPoint : "100,100");
       const tw = num(p.StrokeThickness, 2);
-      const bb = svgBounds([a, z], tw + 2);
-      /* draw in the box's LOCAL space so the line spans the box corner-to-corner
-         instead of sitting in one corner of an oversized SVG (the old bug). */
-      inner = '<svg width="' + bb.w + '" height="' + bb.h + '" style="display:block;overflow:visible">'
-        + '<line x1="' + (a[0] - bb.minX) + '" y1="' + (a[1] - bb.minY)
-        + '" x2="' + (z[0] - bb.minX) + '" y2="' + (z[1] - bb.minY)
+      const ext = geomExtent([a, z], tw + 2);
+      inner = '<svg width="' + ext.w + '" height="' + ext.h + '" style="display:block;overflow:visible">'
+        + '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + z[0] + '" y2="' + z[1]
         + '" stroke="' + escH(cssColor(p.Stroke) || "#1b1b1b")
         + '" stroke-width="' + tw + '" stroke-linecap="round"/></svg>';
     } else if (node.type === "Polygon") {
-      const pairs = String(p.Points || "").trim().split(/\s+/).filter(Boolean).map(parsePoint);
-      const pts = pairs.length ? pairs : [[80, 0], [80, 40], [0, 40]];
+      const pairs = String(p.Points != null ? p.Points : "0,40 40,0 80,40").trim().split(/\s+/).filter(Boolean).map(parsePoint);
+      const pts = pairs.length ? pairs : [[0, 40], [40, 0], [80, 40]];
       const tw = num(p.StrokeThickness, 2);
-      const bb = svgBounds(pts, tw + 2);
-      const local = pts.map(function (pt) { return (pt[0] - bb.minX) + "," + (pt[1] - bb.minY); }).join(" ");
+      const ext = geomExtent(pts, tw + 2);
+      const literal = pts.map(function (pt) { return pt[0] + "," + pt[1]; }).join(" ");
       const fill = cssColor(p.Fill) || (p.Stroke ? "none" : "#9aa7b8");
-      inner = '<svg width="' + bb.w + '" height="' + bb.h + '" style="display:block;overflow:visible">'
-        + '<polygon points="' + escH(local) + '" fill="' + escH(fill) + '"'
+      inner = '<svg width="' + ext.w + '" height="' + ext.h + '" style="display:block;overflow:visible">'
+        + '<polygon points="' + escH(literal) + '" fill="' + escH(fill) + '"'
         + (p.Stroke ? ' stroke="' + escH(cssColor(p.Stroke)) + '" stroke-width="' + tw + '"' : "")
         + "/></svg>" + chips(node, ["Fill"]);
     } else if (node.type === "Path") {
+      /* Path data uses the same mini-language SVG understands for M/L/C/Q/Z, so draw the
+         raw Data. Anchor at origin (overflow visible) so it lines up with Avalonia. */
       const tw = num(p.StrokeThickness, 1);
       const fill = cssColor(p.Fill) || "none";
       const stroke = cssColor(p.Stroke) || (fill === "none" ? "#1b1b1b" : "none");
-      inner = '<svg width="140" height="80" style="overflow:visible"><path d="' + escH(p.Data || "")
-        + '" fill="' + escH(fill) + '" stroke="' + escH(stroke) + '" stroke-width="' + tw + '"/></svg>'
+      inner = '<svg width="100%" height="100%" style="display:block;overflow:visible;min-width:40px;min-height:40px">'
+        + '<path d="' + escH(p.Data || "M 0,0 L 40,40") + '"'
+        + ' fill="' + escH(fill) + '" stroke="' + escH(stroke) + '" stroke-width="' + tw + '"/></svg>'
         + chips(node, ["Fill"]);
     } else {
       inner = escH(node.type) + chips(node, []);
@@ -1155,6 +1174,58 @@
     return h;
   }
 
+  /* ---------------- behaviors panel (Scratch-style, MVVM-compiled) ----------------
+     Every other element in the tree is a possible target; labelled by type + its
+     Content/Text + id so the user can tell them apart. */
+  function behaviorTargets(triggerId) {
+    const list = [];
+    CORE.walk(tree, function (n) {
+      if (!n || n.id === tree.id || n.id === triggerId) return;
+      const p = n.props || {};
+      const label = p.Content || p.Text || p.Header || "";
+      list.push({ id: n.id, label: n.type + (label ? ' “' + label + '”' : "") + " (" + n.id + ")" });
+    });
+    return list;
+  }
+  /* behaviors live on a Button (the trigger = click). Each action targets another
+     element; the codegen turns them into a [RelayCommand] + bindings (pure MVVM). */
+  function behaviorsHTML(node) {
+    const bhs = node.behaviors || [];
+    const targets = behaviorTargets(node.id);
+    const actions = CORE.BEHAVIOR_ACTIONS || [];
+    let h = '<div class="dsg-insp-sec">Behaviors · when clicked</div>';
+    if (!targets.length) {
+      h += '<div class="dsg-insp-note">Add another element (a TextBlock, Slider, …) to the window first, '
+        + "then a click on this button can change it.</div>";
+      return h;
+    }
+    if (!bhs.length) {
+      h += '<div class="dsg-insp-note">No actions yet. A click can change another element — set its text, '
+        + "show/hide it, or set its value. Compiles to a <code>[RelayCommand]</code> + bindings (pure MVVM, "
+        + "no code-behind).</div>";
+    }
+    bhs.forEach(function (a, i) {
+      const act = actions.find(function (x) { return x.id === a.kind; }) || actions[0];
+      h += '<div class="dsg-field-row dsg-behavior-row">';
+      h += '<select class="dsg-in dsg-bh-kind" onchange="DSG.setBehaviorField(' + i + ', \'kind\', this.value)">'
+        + actions.map(function (x) {
+            return '<option value="' + escH(x.id) + '"' + (x.id === a.kind ? " selected" : "") + ">" + escH(x.label) + "</option>";
+          }).join("") + "</select>";
+      h += '<select class="dsg-in dsg-bh-target" title="target element" onchange="DSG.setBehaviorField(' + i + ', \'target\', this.value)">'
+        + targets.map(function (t) {
+            return '<option value="' + escH(t.id) + '"' + (t.id === a.target ? " selected" : "") + ">" + escH(t.label) + "</option>";
+          }).join("") + "</select>";
+      if (act && act.needsValue) {
+        h += '<input class="dsg-in dsg-bh-val" placeholder="value" value="' + escH(a.value != null ? a.value : "")
+          + '" oninput="DSG.setBehaviorField(' + i + ', \'value\', this.value)">';
+      }
+      h += '<button class="dsg-mini dsg-del" title="remove action" onclick="DSG.removeBehavior(' + i + ')">✕</button>';
+      h += "</div>";
+    });
+    h += '<button class="dsg-btn dsg-addfield" onclick="DSG.addBehavior()">+ behavior</button>';
+    return h;
+  }
+
   function inspectorHTML() {
     const node = CORE.findNode(tree, selectedId) || tree;
     const def = CORE.CATALOG[node.type] || { props: [] };
@@ -1171,6 +1242,19 @@
         + "</span>";
     }
     h += "</div>";
+    /* locked elements: explain exactly what lock does (and its honest limit in a flow
+       layout). A locked element can't be dragged, resized, or reordered; on a Canvas it
+       is fully pinned, but in a StackPanel/Grid its position still follows its siblings. */
+    if (!isRoot && node.locked) {
+      const par = CORE.findParent(tree, node.id);
+      const onCanvas = par && par.type === "Canvas";
+      h += '<div class="dsg-insp-note dsg-insp-locked">🔒 Locked — can\'t be dragged, resized, or reordered. '
+        + (onCanvas
+            ? "Pinned to this exact spot on the Canvas."
+            : "Note: inside a " + escH(par ? par.type : "panel") + " its position still follows its siblings — "
+              + "put it on a Canvas to pin it absolutely.")
+        + " Click the 🔒 on the element to unlock.</div>";
+    }
     (def.props || []).forEach(function (p) { h += propRow(node, p, def.defaultProps || {}); });
     /* rotation applies to any control (RenderTransform), so it lives outside the
        per-type prop list — degrees, positive = clockwise, around the centre. */
@@ -1203,6 +1287,8 @@
         + "project so the pasted code lands in the right namespace.</div>";
     }
     if (def.itemsHost) h += itemsModeHTML(node);
+    /* a Button can carry click behaviors that change other elements (MVVM-compiled) */
+    if (node.type === "Button") h += behaviorsHTML(node);
     if (!isRoot) {
       const parent = CORE.findParent(tree, node.id);
       const pdef = parent && CORE.CATALOG[parent.type];
@@ -1287,6 +1373,7 @@
     h += '<p class="bp">New to the control names? Each item in the palette shows a plain-English description of what it does — '
       + 'just drag one into the window, click it to select, and change its settings in the panel on the right. '
       + 'Drag a colour swatch onto anything to paint it; press <span class="kbd">Del</span> to remove what you selected. '
+      + 'Select a <b>Button</b> to give it click <b>behaviors</b> (change a text, show / hide an element, set a value) — they compile to MVVM commands + bindings, no code-behind. '
       + "The AXAML + ViewModel code below updates as you go — copy and paste them into the Starter Kit.</p>";
     h += toolbarHTML();
     h += '<div class="dsg">';
@@ -1948,6 +2035,8 @@
     },
 
     moveSel: function (dir) {
+      const sel = CORE.findNode(tree, selectedId);
+      if (sel && sel.locked) { msg("locked — unlock it to reorder"); return; }
       const parent = CORE.findParent(tree, selectedId);
       if (!parent) return;
       const idx = parent.children.findIndex(function (c) { return c.id === selectedId; });
@@ -2067,6 +2156,34 @@
       if (!node || !node.model || !node.model.fields || !node.model.fields[i]) return;
       pushUndo(); endCoalesce();
       node.model.fields[i].type = value;
+      refresh();
+    },
+
+    /* -- programmable behaviors (Scratch-style, MVVM-compiled) -- */
+    addBehavior: function () {
+      const node = CORE.findNode(tree, selectedId);
+      if (!node) return;
+      const targets = behaviorTargets(node.id);
+      if (!targets.length) { msg("add another element to target first"); return; }
+      pushUndo(); endCoalesce();
+      node.behaviors = node.behaviors || [];
+      node.behaviors.push({ kind: "hide", target: targets[0].id, value: "" });
+      refresh();
+    },
+    setBehaviorField: function (i, field, value) {
+      const node = CORE.findNode(tree, selectedId);
+      if (!node || !node.behaviors || !node.behaviors[i]) return;
+      if (field === "value") pushUndoCoalesced(selectedId + "|bhval|" + i);
+      else { pushUndo(); endCoalesce(); }
+      node.behaviors[i][field] = value;
+      if (field === "value") refreshLight(); else refresh();
+    },
+    removeBehavior: function (i) {
+      const node = CORE.findNode(tree, selectedId);
+      if (!node || !node.behaviors) return;
+      pushUndo(); endCoalesce();
+      node.behaviors.splice(i, 1);
+      if (!node.behaviors.length) delete node.behaviors;
       refresh();
     },
 

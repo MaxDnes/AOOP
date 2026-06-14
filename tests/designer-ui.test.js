@@ -50,6 +50,18 @@ test("DSG exposes the spec-19 gap-fix handlers", () => {
     ok(typeof global.DSG[fn] === "function", "missing DSG." + fn);
   });
 });
+/* programmable behaviors: handlers exist and the action catalog is exported */
+test("DSG exposes the behavior handlers and CORE lists behavior actions", () => {
+  require("../data/designer.js");
+  ["addBehavior", "setBehaviorField", "removeBehavior"].forEach((fn) => {
+    ok(typeof global.DSG[fn] === "function", "missing DSG." + fn);
+  });
+  const acts = global.DESIGNER_CORE.BEHAVIOR_ACTIONS;
+  ok(Array.isArray(acts) && acts.length >= 4, "BEHAVIOR_ACTIONS exported");
+  ["setText", "hide", "show", "setValue"].forEach((id) => {
+    ok(acts.some((a) => a.id === id), "behavior action present: " + id);
+  });
+});
 test("setProjectNamespace persists on the tree and stamps into generated code", () => {
   const C = global.DESIGNER_CORE;
   global.DSG.newDesign();                       // fresh Window selected
@@ -378,8 +390,12 @@ test("any element (e.g. CheckBox) shows resize grips when selected", () => {
   includes(html, 'data-grip="se"');
 });
 
-/* ---------------- broken-line fix: geometry-hugging box, no inert resize ---------------- */
-test("a Line preview hugs its geometry and translates into local box space", () => {
+/* ---------------- WYSIWYG line preview: origin-anchored, literal coords, no inert resize ----------------
+   Avalonia draws a shape's geometry in its own coordinate space and the shape's bounds
+   span from (0,0) to the geometry's max extent (verified by headless layout). So the
+   preview must draw the line at its LITERAL coordinates inside an origin-anchored box,
+   not a box that hugs the geometry — that is what makes the preview match the exported app. */
+test("a Line preview draws at literal coords in an origin-anchored box (matches Avalonia)", () => {
   require("../data/designer.js");
   const C = global.DESIGNER_CORE;
   const tree = C.createNode("Window");
@@ -391,8 +407,11 @@ test("a Line preview hugs its geometry and translates into local box space", () 
   const html = global.DESIGNER.previewHTML(tree, ln.id);
   const m = html.match(/<svg width="(\d+)" height="(\d+)"[^>]*><line x1="([\d.-]+)" y1="([\d.-]+)" x2="([\d.-]+)" y2="([\d.-]+)"/);
   ok(m, "line svg renders");
-  ok(Math.abs(+m[1] - 290) < 10 && Math.abs(+m[2] - 90) < 10, "box hugs the 290x90 geometry, not 270x270: " + m[1] + "x" + m[2]);
-  ok(+m[3] < 8 && +m[4] < 8, "start point translated near the box origin (" + m[3] + "," + m[4] + ")");
+  // box spans origin -> max extent (330 x 250, plus stroke pad), NOT the 290x90 bbox
+  ok(Math.abs(+m[1] - 330) < 12 && Math.abs(+m[2] - 250) < 12, "box anchored at origin to max extent ~330x250, got " + m[1] + "x" + m[2]);
+  // points drawn at their literal coordinates (no translation into local space)
+  ok(+m[3] === 40 && +m[4] === 160, "start point at literal 40,160 (" + m[3] + "," + m[4] + ")");
+  ok(+m[5] === 330 && +m[6] === 250, "end point at literal 330,250 (" + m[5] + "," + m[6] + ")");
   notIncludes(html, "width:270px", "Width prop must not size the line box");
 });
 test("a Line shows the move handle but NO resize grips (geometry, not Width/Height)", () => {

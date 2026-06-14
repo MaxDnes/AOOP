@@ -146,6 +146,26 @@
 }
 .ql-f-ovr:hover { border-color: var(--green); }
 
+/* editable class name in the model card (rename root / nested classes) */
+.ql-rename {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  color: var(--amber); letter-spacing: 0.3px;
+  background: transparent;
+  border: 1px solid transparent; border-radius: 5px;
+  padding: 1px 5px; width: 150px;
+}
+.ql-rename:hover { border-color: var(--line); }
+.ql-rename:focus, .ql-rename:focus-visible {
+  outline: none; border-color: var(--green); background: var(--ink-3);
+}
+.ql-root-tag {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--green);
+  border: 1px solid var(--line-soft); border-radius: 4px;
+  padding: 1px 5px; margin-left: 4px;
+}
+
 /* ---------- parse error / empty ---------- */
 .ql-parse-err {
   padding: 14px 16px;
@@ -495,6 +515,7 @@
 .ql-run-q-h span { color: var(--text-faint); font-size: 11.5px; margin-left: 6px; }
 .ql-run-note { color: var(--amber); font-size: 11.5px; margin-bottom: 4px; }
 .ql-run-count { color: var(--text-faint); font-size: 11px; margin-bottom: 5px; }
+.ql-run-scalar { color: var(--green); font-weight: 700; font-size: 14px; font-family: var(--mono); }
 .ql-run-empty { color: var(--text-faint); font-style: italic; font-size: 12px; }
 .ql-run-more { color: var(--text-faint); font-size: 11px; margin-top: 4px; }
 .ql-table-wrap { overflow-x: auto; max-height: 320px; overflow-y: auto; border: 1px solid var(--line-soft); border-radius: 6px; }

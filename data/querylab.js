@@ -19,12 +19,12 @@ const STORE_VERSION = 1;   /* version-stamped payloads ({v:1, ...}) with gracefu
    owns the actual code generation. */
 const SHAPE_UI = [
   { key: "list-method",            icon: "ƒ",  label: "apply a method (ToString…)",  needs: ["method"] },
-  { key: "filter-equals",          icon: "=",  label: "filter · compare",           needs: ["field", "op", "value", "ci"] },
-  { key: "filter-contains",        icon: "∋",  label: "filter · contains",          needs: ["field", "value", "ci"] },
-  { key: "filter-empty-collection",icon: "∅",  label: "filter · empty collection",  needs: ["collectionField"] },
-  { key: "filter-nested-any",      icon: "⊆",  label: "filter · nested Any",        needs: ["collectionField", "subField", "match", "value", "andWhere"] },
+  { key: "filter-equals",          icon: "=",  label: "filter · compare",           needs: ["field", "op", "value", "ci", "reduce"] },
+  { key: "filter-contains",        icon: "∋",  label: "filter · contains",          needs: ["field", "value", "ci", "reduce"] },
+  { key: "filter-empty-collection",icon: "∅",  label: "filter · empty collection",  needs: ["collectionField", "reduce"] },
+  { key: "filter-nested-any",      icon: "⊆",  label: "filter · nested Any",        needs: ["collectionField", "subField", "match", "value", "andWhere", "reduce"] },
   { key: "sort-by",                icon: "↕",  label: "sort by",                    needs: ["field", "byCount", "nullValue", "direction", "thenBy"] },
-  { key: "group-aggregate",        icon: "Σ",  label: "group + aggregate",          needs: ["field", "aggregate", "groupSort"] },
+  { key: "group-aggregate",        icon: "Σ",  label: "group + aggregate",          needs: ["field", "aggregate", "groupSort", "having", "onlyKey"] },
   { key: "most-frequent-per-group",icon: "★",  label: "per group · most frequent",  needs: ["field", "valueField", "direction"] },
   { key: "above-average",          icon: "x̄",  label: "above average",              needs: ["field", "byCount", "excludeNull"] },
   { key: "top-n",                  icon: "▲",  label: "top N",                      needs: ["field", "byCount", "direction", "n"] },
@@ -94,6 +94,24 @@ const GROUP_SORTS = [
   { key: "valueAsc",  label: "by count · least first" },
   { key: "keyAsc",    label: "by key · A→Z" },
   { key: "keyDesc",   label: "by key · Z→A" },
+];
+/* optional reduce on a filter row: return the list, or collapse it to a scalar
+   (Count / Any) or the first matching element. */
+const REDUCERS = [
+  { key: "",      label: "→ list" },
+  { key: "count", label: "→ Count" },
+  { key: "any",   label: "→ Any?" },
+  { key: "first", label: "→ first" },
+];
+/* optional HAVING comparison on a group + aggregate's value (count/average/…). */
+const HAVING_OPS = [
+  { key: "",    label: "keep all groups" },
+  { key: "gt",  label: "value >" },
+  { key: "gte", label: "value ≥" },
+  { key: "lt",  label: "value <" },
+  { key: "lte", label: "value ≤" },
+  { key: "eq",  label: "value =" },
+  { key: "neq", label: "value ≠" },
 ];
 function currentOp(row) { return row.op || (row.match === "null" ? "is" : "eq"); }
 
@@ -193,8 +211,10 @@ function newRow(shape) {
     collection: "", subField: "", match: "equals",
     byCount: false, direction: "desc", thenBy: "", thenDirection: "asc",
     aggregate: "Count", subCount: false, sort: "",   /* group-aggregate: optional result sort */
+    having: "", havingValue: "", onlyKey: "",  /* group-aggregate: optional HAVING + pick-a-group */
     nullValue: "",            /* sort-by: optional `?? n` coalesce on a nullable key */
     excludeNull: false,       /* above-average: average known values only */
+    reduce: "",               /* filter: optional reduce to Count / Any / first */
     andWhere: null,           /* filter-nested-any: optional root-level AND predicate { field, value } */
     n: 5, fields: [],
     name: "q" + (state.rows.length + 1),
@@ -381,8 +401,12 @@ function modelsHTML() {
   }
   h += "</div>";
   model.classes.forEach(function (cls) {
+    const isRoot = cls.name === model.rootClass;
     h += '<div class="ql-class">';
-    h += '<div class="ql-class-name">class ' + esc(cls.name) + "</div>";
+    h += '<div class="ql-class-name">class <input class="ql-rename" value="' + esc(cls.name) +
+      '" spellcheck="false" title="rename this class — updates the generated C# and any field overrides" onchange="QL.renameClass(\'' +
+      jsq(cls.name) + '\', this.value, ' + (isRoot ? "true" : "false") + ')">' +
+      (isRoot ? ' <span class="ql-root-tag" title="the root element type the JSON/CSV deserializes into">root</span>' : "") + "</div>";
     cls.fields.forEach(function (f) {
       const ov = state.overrides[cls.name + "." + f.key];
       const declared = core().declaredType(f, ov);
@@ -510,6 +534,21 @@ function rowHTML(row, i) {
     });
     h += "</select>";
   }
+  /* group-aggregate HAVING: keep only groups whose aggregate value passes a test */
+  if (needs.indexOf("having") !== -1) {
+    h += '<select class="ql-sel" title="HAVING: keep only groups whose count/value passes this test" onchange="QL.setRow(' + i + ', \'having\', this.value)">';
+    HAVING_OPS.forEach(function (o) {
+      h += '<option value="' + o.key + '"' + (o.key === (row.having || "") ? " selected" : "") + ">" + esc(o.label) + "</option>";
+    });
+    h += "</select>";
+    if (row.having) {
+      h += '<input class="ql-num" value="' + esc(row.havingValue || "") + '" placeholder="value" title="threshold the group value is compared to" onchange="QL.setRow(' + i + ', \'havingValue\', this.value)">';
+    }
+  }
+  /* group-aggregate pick-a-group: keep only the group with this exact key */
+  if (needs.indexOf("onlyKey") !== -1) {
+    h += '<input class="ql-val" value="' + esc(row.onlyKey || "") + '" placeholder="only group =" title="optional: keep only the group whose key equals this value" onchange="QL.setRow(' + i + ', \'onlyKey\', this.value)">';
+  }
   if (needs.indexOf("collectionField") !== -1) {
     h += fieldSelect(row, "collection", collectionFields(), row.collection);
   }
@@ -598,6 +637,14 @@ function rowHTML(row, i) {
   }
   if (needs.indexOf("ci") !== -1) {
     h += checkbox(i, "caseInsensitive", row.caseInsensitive, "ignore case");
+  }
+  /* filter rows: optionally reduce the matching list to Count / Any / first match */
+  if (needs.indexOf("reduce") !== -1) {
+    h += '<select class="ql-sel" title="return the matching list, or reduce it to a Count / Any (bool) / first match" onchange="QL.setRow(' + i + ', \'reduce\', this.value)">';
+    REDUCERS.forEach(function (rd) {
+      h += '<option value="' + rd.key + '"' + (rd.key === (row.reduce || "") ? " selected" : "") + ">" + esc(rd.label) + "</option>";
+    });
+    h += "</select>";
   }
   h += "</div>";
 
@@ -733,6 +780,8 @@ function runHTML() {
     const r = q.res;
     if (!r || !r.ok) { h += '<div class="ql-run-err">' + esc((r && r.error) || "could not run") + "</div></div>"; return; }
     if (r.note) h += '<div class="ql-run-note">' + esc(r.note) + "</div>";
+    /* a reduced filter (Count / Any) is a single value, not a table */
+    if (r.scalar) { h += '<div class="ql-run-count ql-run-scalar">= ' + fmtCell(r.value) + "</div></div>"; return; }
     const cols = r.columns || [];
     const data = r.data || [];
     h += '<div class="ql-run-count">' + data.length + " result" + (data.length === 1 ? "" : "s") + "</div>";
@@ -1061,6 +1110,40 @@ function setOverride(key, value) {
   regenerate();
 }
 
+/* rename an inferred class from the model card. The root rename sets state.rootClass
+   (works for both JSON and CSV); a nested rename is recorded in state.classNames keyed
+   by the ORIGINAL inferred name, so renaming an already-renamed class updates the same
+   entry instead of stacking. Per-field overrides ("OldName.field") are migrated so a
+   date toggle survives the rename. Invalid / duplicate names are rejected with a hint. */
+function renameClass(currentName, newName, isRoot) {
+  ensureState();
+  newName = String(newName == null ? "" : newName).trim();
+  if (!/^[A-Za-z_]\w*$/.test(newName)) { setStatus("class name must be a valid C# identifier"); paintModels(); return; }
+  if (newName === currentName) { paintModels(); return; }
+  if (model && model.classes && model.classes.some(function (c) { return c.name !== currentName && c.name === newName; })) {
+    setStatus("a class named " + newName + " already exists"); paintModels(); return;
+  }
+  const migrated = {};
+  Object.keys(state.overrides || {}).forEach(function (k) {
+    const dot = k.indexOf(".");
+    if (dot > 0 && k.slice(0, dot) === currentName) migrated[newName + k.slice(dot)] = state.overrides[k];
+    else migrated[k] = state.overrides[k];
+  });
+  state.overrides = migrated;
+  if (isRoot) {
+    state.rootClass = newName;
+  } else {
+    if (!state.classNames || typeof state.classNames !== "object") state.classNames = {};
+    let orig = currentName;
+    Object.keys(state.classNames).forEach(function (k) { if (state.classNames[k] === currentName) orig = k; });
+    if (orig === newName) delete state.classNames[orig];
+    else state.classNames[orig] = newName;
+  }
+  saveState();
+  regenerate();
+  setStatus("renamed class to " + newName);
+}
+
 /* ---------------- copy + shared button feedback ---------------- */
 /* flash a button label (the identical "copied/exported ✓" feedback used by every
    action button), restoring the original label afterwards. */
@@ -1107,6 +1190,7 @@ const QL = {
   toggleField: toggleField,
   setOpt: setOpt,
   setOverride: setOverride,
+  renameClass: renameClass,
   copyCode: copyCode,
   exportProject: exportProject,
   downloadSubmission: downloadSubmission,

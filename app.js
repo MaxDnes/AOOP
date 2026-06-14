@@ -145,78 +145,11 @@ function inline(s) {
   return h;
 }
 
-/* ---------------- syntax highlighting ---------------- */
-const CS_KEYWORDS = "abstract as async await base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach get goto if implicit in init int interface internal is lock long namespace new null object operator out override params partial private protected public readonly record ref required return sbyte sealed set short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using var virtual void volatile when where while yield field value nameof".split(" ");
-const CS_TYPES = "Console Task List Dictionary HashSet SortedSet Queue Stack LinkedList LinkedListNode ObservableCollection IEnumerable IEnumerator ICollection IList IDictionary IComparable IComparer IDisposable INotifyPropertyChanged PropertyChangedEventArgs PropertyChangedEventHandler EventArgs EventHandler Action Func Predicate Thread Tasks Math Random DateTime TimeSpan Guid File Directory Path JsonSerializer JsonSerializerOptions JsonNamingPolicy Exception ArgumentException InvalidOperationException FileNotFoundException NullReferenceException AggregateException OperationCanceledException CancellationToken CancellationTokenSource SemaphoreSlim ManualResetEventSlim PeriodicTimer BlockingCollection ConcurrentBag ConcurrentQueue ConcurrentStack ConcurrentDictionary Interlocked Monitor StringBuilder String Int32 Object Window StackPanel DockPanel Grid Canvas WrapPanel UniformGrid RelativePanel Border Button TextBlock TextBox Label CheckBox RadioButton ComboBox ListBox Slider NumericUpDown Menu MenuItem TabControl TabItem Image Rectangle Ellipse ItemsControl ContentControl UserControl Application AppBuilder Dispatcher DispatcherTimer DispatcherPriority Avalonia ObservableObject RelayCommand IRelayCommand ICommand AsyncRelayCommand Thickness Orientation HorizontalAlignment VerticalAlignment Brushes IBrush SolidColorBrush Color Colors Bitmap AssetLoader IClassicDesktopStyleApplicationLifetime AvaloniaXamlLoader FluentTheme SimpleTheme StreamReader StreamWriter Assert Xunit Fact Theory InlineData AvaloniaFact AvaloniaTestApplication AvaloniaHeadlessPlatformOptions PhysicalKey RawInputModifiers KeyValuePair Enumerable Tuple Lazy Nullable Convert Encoding CultureInfo".split(" ");
-
-function hiCS(code) {
-  let h = esc(code);
-  const slots = [];
-  const stash = (html) => { slots.push(html); return "~S" + (slots.length - 1) + "Z~"; };
-
-  // comments
-  h = h.replace(/\/\*[\s\S]*?\*\//g, (m) => stash('<span class="tk-com">' + m + "</span>"));
-  h = h.replace(/\/\/[^\n]*/g, (m) => stash('<span class="tk-com">' + m + "</span>"));
-  // strings (interpolated, verbatim, normal, char)
-  h = h.replace(/\$?@?&quot;(?:\\.|&quot;&quot;|(?!&quot;)[\s\S])*?&quot;/g, (m) => stash('<span class="tk-str">' + m + "</span>"));
-  h = h.replace(/&#39;(?:\\.|[^&])*?&#39;|'(?:\\.|[^'])'/g, (m) => stash('<span class="tk-str">' + m + "</span>"));
-  // attributes  [ObservableProperty] [RelayCommand(...)] [Fact] ...
-  h = h.replace(/\[(assembly:\s*)?([A-Z]\w*)(\([^\]]*\))?\]/g, (m) => stash('<span class="tk-attr">' + m + "</span>"));
-  // numbers
-  h = h.replace(/\b(\d[\d_]*\.?\d*[MmFfDdLl]?)\b/g, '<span class="tk-num">$1</span>');
-  // keywords
-  h = h.replace(new RegExp("\\b(" + CS_KEYWORDS.join("|") + ")\\b", "g"), '<span class="tk-kw">$1</span>');
-  // known types
-  h = h.replace(new RegExp("\\b(" + CS_TYPES.join("|") + ")\\b", "g"), '<span class="tk-typ">$1</span>');
-
-  h = h.replace(/~S(\d+)Z~/g, (m, i) => slots[+i]);
-  return h;
-}
-
-function hiXML(code) {
-  let h = esc(code);
-  const slots = [];
-  const stash = (html) => { slots.push(html); return "~S" + (slots.length - 1) + "Z~"; };
-
-  h = h.replace(/&lt;!--[\s\S]*?--&gt;/g, (m) => stash('<span class="tk-com">' + m + "</span>"));
-  // attribute="value"  (highlight {Binding ...} and {x:Type} inside values)
-  h = h.replace(/([\w.:-]+)(=)(&quot;[^&]*?&quot;)/g, (m, n, eq, v) => {
-    let vv = v.replace(/\{[^}]*\}/g, '<span class="tk-attr">$&</span>');
-    return stash('<span class="tk-an">' + n + "</span>" + eq + '<span class="tk-str">' + vv + "</span>");
-  });
-  // tags
-  h = h.replace(/(&lt;\/?)([\w.:]+)/g, '$1<span class="tk-tag">$2</span>');
-  h = h.replace(/~S(\d+)Z~/g, (m, i) => slots[+i]);
-  return h;
-}
-
-function hiBash(code) {
-  let h = esc(code);
-  const slots = [];
-  const stash = (html) => { slots.push(html); return "~S" + (slots.length - 1) + "Z~"; };
-  // stash comments FIRST so flag/keyword passes never reach inside them
-  h = h.replace(/^(\s*#[^\n]*)$/gm, (m) => stash('<span class="tk-com">' + m + "</span>"));
-  h = h.replace(/^(\s*)(dotnet|cd|mkdir|dir|ls)\b/gm, '$1<span class="tk-kw">$2</span>');
-  h = h.replace(/(--?[\w-]+)/g, '<span class="tk-an">$1</span>');
-  h = h.replace(/~S(\d+)Z~/g, (m, i) => slots[+i]);
-  return h;
-}
-
-function hiJSON(code) {
-  let h = esc(code);
-  h = h.replace(/&quot;(\\.|[^&])*?&quot;(?=\s*:)/g, '<span class="tk-an">$&</span>');
-  h = h.replace(/:\s*(&quot;(\\.|[^&])*?&quot;)/g, (m, v) => m.replace(v, '<span class="tk-str">' + v + "</span>"));
-  h = h.replace(/\b(true|false|null)\b/g, '<span class="tk-kw">$1</span>');
-  h = h.replace(/\b(\d+\.?\d*)\b/g, '<span class="tk-num">$1</span>');
-  return h;
-}
-
+/* ---------------- syntax highlighting ----------------
+   The token-based highlighter lives in data/highlight-core.js (Node-loadable,
+   so the test suite can exercise it). This is a thin bridge to that module. */
 function highlight(code, lang) {
-  if (lang === "csharp") return hiCS(code);
-  if (lang === "xml") return hiXML(code);
-  if (lang === "bash") return hiBash(code);
-  if (lang === "json") return hiJSON(code);
-  return esc(code);
+  return HIGHLIGHT_CORE.highlight(code, lang);
 }
 
 /* ---------------- block rendering ----------------

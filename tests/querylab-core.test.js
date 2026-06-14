@@ -911,12 +911,13 @@ test("csv UI: pasting CSV then JSON leaves CSV mode (no sticky badge)", () => {
 test("csv UI: a .csv input file name renames the class to a singular (products.csv -> Product)", () => {
   const f = freshUI();
   f.QL.setJson(CSV_SAMPLE);
-  /* default input file is data.json -> class stays the default Row */
-  includes(f.els["ql-models"].innerHTML, "class Row", "default CSV class name is Row");
+  /* default input file is data.json -> class stays the default Row (now an editable
+     rename input, so the name shows as the input's value rather than bare text) */
+  includes(f.els["ql-models"].innerHTML, 'value="Row"', "default CSV class name is Row");
   /* naming a .csv input file derives a singular class name */
   f.QL.setOpt("inputFile", "products.csv");
   const modelEl = f.els["ql-models"].innerHTML;
-  includes(modelEl, "class Product", "products.csv derives class Product");
+  includes(modelEl, 'value="Product"', "products.csv derives class Product");
   /* and the generated code uses that class name in ParseCsv */
   includes(f.els["ql-output"].innerHTML, "Product", "generated code references the derived class");
 });
@@ -1250,4 +1251,130 @@ test("runner is reachable from the UI Run button and renders a results table", (
   const runHtml = f.els["ql-run"].innerHTML;
   includes(runHtml, "5 results", "the run panel shows the five matching rows");
   includes(runHtml, "Watchmen", "a matching row is rendered in the table");
+});
+
+/* REGRESSION (exam-day flow): a query row that references a field by a different CASE
+   than the data (e.g. the camelCase comics preset's "releaseYear" applied over the real
+   PascalCase "ReleaseYear" comics.json) must still resolve to the TYPED field, so a
+   numeric column compares numerically instead of string.Compare on an int (CS0019).
+   findRootField falls back to a case-insensitive match. */
+test("filter field resolves case-insensitively so a numeric column compares numerically", () => {
+  const sample = JSON.stringify([{ Title: "X", ReleaseYear: 1998 }, { Title: "Y", ReleaseYear: 2010 }]);
+  const m = C.parseSample(sample, { allNullable: false }).model;
+  const code = C.generateProgram(m,
+    [{ shape: "filter-equals", field: "releaseYear", op: "lt", value: "2000", name: "before2000" }],
+    { inputFile: "comics.json", outputFile: "out.json" });
+  includes(code, "s.ReleaseYear < 2000", "numeric comparison on the int field");
+  notIncludes(code, "string.Compare(s.ReleaseYear", "must not string.Compare an int field");
+});
+
+/* ============================================================
+   reduce a filter to Count / Any / first; HAVING + pick-a-group on
+   group-aggregate; editable class names. (the three flexibility adds)
+   ============================================================ */
+const FLEX_SAMPLE = JSON.stringify([
+  { name: "A", genre: "Rock", performances: [{ festival: "X" }, { festival: "Y" }] },
+  { name: "B", genre: "Rock", performances: [{ festival: "X" }] },
+  { name: "C", genre: "Jazz", performances: [{ festival: "Z" }, { festival: "W" }, { festival: "Q" }] },
+  { name: "D", genre: "Jazz", performances: [] },
+]);
+function flexRun(row) {
+  const m = modelOf(FLEX_SAMPLE);
+  return C.runQuery(m, row, C.extractRows(FLEX_SAMPLE).rows, {});
+}
+
+test("reduce: filter -> Count / Any / first emit the right terminal (not ToList)", () => {
+  const m = modelOf(FLEX_SAMPLE);
+  const count = genRow(m, { shape: "filter-equals", field: "genre", op: "eq", value: "Rock", reduce: "count", name: "q1" });
+  includes(count, '.Where(s => s.Genre == "Rock")', "still filters");
+  includes(count, ".Count()", "reduce=count emits .Count()");
+  notIncludes(count, ".ToList()", "count result is not a list");
+  const any = genRow(m, { shape: "filter-equals", field: "genre", op: "eq", value: "Jazz", reduce: "any", name: "q1" });
+  includes(any, ".Any()", "reduce=any emits .Any()");
+  const first = genRow(m, { shape: "filter-equals", field: "genre", op: "eq", value: "Rock", reduce: "first", name: "q1", print: true });
+  includes(first, ".FirstOrDefault()", "reduce=first emits .FirstOrDefault()");
+  includes(first, "public override string ToString()", "first match emits a ToString override to print the element");
+});
+
+test("reduce: default (unset) stays .ToList(); reduce works on contains + nested-any too", () => {
+  const m = modelOf(FLEX_SAMPLE);
+  const list = genRow(m, { shape: "filter-equals", field: "genre", op: "eq", value: "Rock", name: "q1" });
+  includes(list, ".ToList()", "no reduce -> list (byte-unchanged)");
+  notIncludes(list, ".Count()", "no spurious Count");
+  const contains = genRow(m, { shape: "filter-contains", field: "genre", value: "Roc", reduce: "count", name: "q1" });
+  includes(contains, ".Count()", "contains reduces to count");
+  const nested = genRow(m, { shape: "filter-nested-any", collection: "performances", subField: "festival", match: "equals", value: "X", reduce: "count", name: "q1" });
+  includes(nested, ".Count()", "nested-any reduces to count");
+});
+
+test("reduce: runner returns the scalar/element; buildResultsJson writes it", () => {
+  const cnt = flexRun({ shape: "filter-equals", field: "genre", op: "eq", value: "Rock", reduce: "count" });
+  ok(cnt.scalar && cnt.value === 2, "count = 2 Rock artists");
+  const any = flexRun({ shape: "filter-equals", field: "genre", op: "eq", value: "Pop", reduce: "any" });
+  ok(any.scalar && any.value === false, "no Pop -> Any false");
+  const first = flexRun({ shape: "filter-equals", field: "genre", op: "eq", value: "Jazz", reduce: "first" });
+  ok(first.element && first.data.length === 1 && first.data[0].name === "C", "first Jazz is C");
+  const m = modelOf(FLEX_SAMPLE);
+  const json = C.buildResultsJson(m, [
+    { shape: "filter-equals", field: "genre", op: "eq", value: "Rock", reduce: "count", output: true, outputKey: "rockCount", name: "q1" },
+  ], C.extractRows(FLEX_SAMPLE).rows, {});
+  includes(json, '"rockCount": 2', "results JSON carries the scalar count, not a list");
+});
+
+test("group HAVING: keep only groups whose aggregate value passes the test", () => {
+  const m = modelOf(FLEX_SAMPLE);
+  const code = genRow(m, { shape: "group-aggregate", field: "genre", aggregate: "Count", having: "gt", havingValue: "1", name: "q1" });
+  includes(code, "Value = g.Count() })", "Select projects Key + Value");
+  includes(code, ".Where(x => x.Value > 1)", "HAVING filter on the aggregate value");
+  ok(code.indexOf("g.Count() })") < code.indexOf(".Where(x => x.Value"), "HAVING comes after the Select");
+  /* default (no having) emits no group Where */
+  const plain = genRow(m, { shape: "group-aggregate", field: "genre", aggregate: "Count", name: "q1" });
+  notIncludes(plain, ".Where(x =>", "no having -> no group filter (byte-unchanged)");
+  /* runner: both Rock(2) and Jazz(2) have > 1 artist */
+  const r = flexRun({ shape: "group-aggregate", field: "genre", aggregate: "Count", having: "gt", havingValue: "1" });
+  eq(r.data.length, 2, "both genres have 2 artists");
+  const r2 = flexRun({ shape: "group-aggregate", field: "genre", aggregate: "Count", having: "gt", havingValue: "2" });
+  eq(r2.data.length, 0, "no genre has more than 2 artists");
+});
+
+test("group pick-a-group: keep only the named group; numeric key stays a bare literal", () => {
+  const m = modelOf(FLEX_SAMPLE);
+  const code = genRow(m, { shape: "group-aggregate", field: "genre", aggregate: "Average", subField: "performances", subCount: true, onlyKey: "Jazz", name: "q1" });
+  includes(code, '.Where(x => x.Key == "Jazz")', "string group key is quoted");
+  const r = flexRun({ shape: "group-aggregate", field: "genre", aggregate: "Average", subField: "performances", subCount: true, onlyKey: "Jazz" });
+  eq(r.data.length, 1, "only Jazz survives");
+  ok(Math.abs(r.data[0].Value - 1.5) < 1e-9, "Jazz averages (3+0)/2 = 1.5 performances");
+  /* numeric group key -> bare literal, and HAVING + onlyKey compose with && */
+  const numSample = JSON.stringify([{ y: 2024 }, { y: 2024 }, { y: 2023 }]);
+  const nm = C.parseSample(numSample, { allNullable: true }).model;
+  const numCode = genRow(nm, { shape: "group-aggregate", field: "y", aggregate: "Count", onlyKey: "2024", having: "gte", havingValue: "2", name: "q1" });
+  includes(numCode, ".Where(x => x.Key == 2024 && x.Value >= 2)", "numeric key bare; both clauses ANDed");
+});
+
+test("editable class names: rename root + nested updates generated C# (UI)", () => {
+  const f = freshUI();
+  f.QL.setJson(JSON.stringify([{ name: "A", shows: [{ venue: "X" }] }]));
+  /* setJson paints the model card synchronously; the default root shows as Item */
+  includes(f.els["ql-models"].innerHTML, 'value="Item"', "default root class is Item");
+  f.QL.renameClass("Item", "Artist", true);   /* regenerates synchronously -> paints ql-output */
+  let out = f.els["ql-output"].innerHTML;   /* note: HTML-escaped, so < > are &lt; &gt; */
+  includes(out, "class Artist", "root renamed to Artist");
+  includes(out, "class Show", "nested class still present");
+  notIncludes(out, "class Item", "old root name is gone");
+  f.QL.renameClass("Show", "Gig", false);
+  out = f.els["ql-output"].innerHTML;
+  includes(out, "class Gig", "nested class renamed to Gig");
+  includes(out, "List&lt;Gig&gt;", "collection element type cascaded to the new name");
+  notIncludes(out, "class Show", "old nested name is gone");
+});
+
+test("editable class names: a date override survives a class rename (UI)", () => {
+  const f = freshUI();
+  f.QL.setJson(JSON.stringify([{ name: "A", joined: "2024-01-01" }]));
+  f.QL.setOverride("Item.joined", "DateTime");
+  includes(f.els["ql-output"].innerHTML, "DateTime", "date override applied before rename");
+  f.QL.renameClass("Item", "Person", true);
+  const out = f.els["ql-output"].innerHTML;
+  includes(out, "class Person", "root renamed to Person");
+  includes(out, "DateTime", "the date override migrated to Person.joined and still applies");
 });

@@ -116,6 +116,50 @@ test("canvas children carry Canvas.Left/Top; shapes emit Fill", () => {
   includes(axaml, 'Fill="#39BAE6"');
 });
 
+/* REGRESSION (the "shapes don't show / blank app" bug): a freshly-dropped Line, Polygon,
+   or Path keeps its geometry at the catalog default. Because attrsOf omits props equal to
+   their default, the defining geometry props (StartPoint/EndPoint, Points, Data) were
+   stripped and the shape exported as `<Polygon Fill="..."/>` — a 0x0 nothing at runtime.
+   The defining props must ALWAYS be emitted, even when equal to the default. */
+test("fresh Line/Polygon/Path emit their defining geometry even at default values", () => {
+  const tree = C.createNode("Window");
+  const cv = C.createNode("Canvas"); C.addChild(tree, tree.id, cv);
+  const ln = C.createNode("Line"); C.addChild(tree, cv.id, ln);
+  const pg = C.createNode("Polygon"); C.addChild(tree, cv.id, pg);
+  const pa = C.createNode("Path"); C.addChild(tree, cv.id, pa);
+  const { axaml } = C.generate(tree);
+  xmlBalanced(axaml);
+  includes(axaml, 'StartPoint="0,0"', "Line StartPoint emitted at default");
+  includes(axaml, 'EndPoint="100,100"', "Line EndPoint emitted at default");
+  includes(axaml, 'Points="0,40 40,0 80,40"', "Polygon Points emitted at default");
+  includes(axaml, 'Data="M 0,0 L 40,40"', "Path Data emitted at default");
+  // a defining-prop-less shape would be invisible; this guards that they never vanish
+  notIncludes(axaml, "<Polygon Fill", "Polygon must not export with only a Fill (no Points)");
+});
+
+/* geometry shapes are point/path-defined: Width/Height are inert and must never be
+   emitted (they would push the shape into the corner of an oversized box at runtime). */
+test("Line/Polygon/Path never emit Width/Height (inert for geometry shapes)", () => {
+  const tree = C.createNode("Window");
+  const cv = C.createNode("Canvas"); C.addChild(tree, tree.id, cv);
+  ["Line", "Polygon", "Path"].forEach((t) => {
+    const n = C.createNode(t); n.props.Width = 200; n.props.Height = 150; C.addChild(tree, cv.id, n);
+  });
+  const { axaml } = C.generate(tree);
+  notIncludes(axaml, 'Width="200"', "geometry shape Width must not be emitted");
+  notIncludes(axaml, 'Height="150"', "geometry shape Height must not be emitted");
+});
+
+/* a user-edited geometry that happens to equal the default is still emitted (the omit-
+   if-default optimization must not apply to defining props). */
+test("a Polygon whose Points equals the default is still emitted", () => {
+  const tree = C.createNode("Window");
+  const cv = C.createNode("Canvas"); C.addChild(tree, tree.id, cv);
+  const pg = C.createNode("Polygon"); pg.props.Points = "0,40 40,0 80,40"; C.addChild(tree, cv.id, pg);
+  const { axaml } = C.generate(tree);
+  includes(axaml, 'Points="0,40 40,0 80,40"');
+});
+
 /* -- codegen: ViewModel from bindings -- */
 function vmOf(setup) {
   const tree = C.createNode("Window");
@@ -517,6 +561,10 @@ test("recipe regenerate-from-service: clears+repopulates, ctor injection, interf
   includes(gen.model, "IEnumerable<Recipe> GetItems();");
   includes(gen.model, "public class InMemoryItemProvider : IItemProvider");
   notIncludes(gen.viewModel, "// TODO", "service recipe is fully wired");
+  /* REGRESSION: the harness's App.axaml.cs does `new MainWindowViewModel()`. A DI-only
+     ctor (CS7036) would not compile there, so a parameterless ctor must chain to the DI
+     overload with the InMemory impl. */
+  includes(gen.viewModel, "public MainWindowViewModel() : this(new InMemoryItemProvider()) { }");
 });
 
 /* -- timer: DispatcherTimer mechanism -- */
@@ -848,6 +896,90 @@ test("CountText without a collection emits no UpdateCountText wiring", () => {
   const { viewModel } = C.generate(tree);
   notIncludes(viewModel, "UpdateCountText", "no count wiring without a collection");
   includes(viewModel, "private string countText");
+});
+
+/* ==================== programmable behaviors (Scratch-style, MVVM-compiled) ==================== */
+
+/* a button click that sets a TextBlock's text, hides another element, and sets a Slider's
+   value must compile to bindings on the targets + a [RelayCommand] that sets VM members. */
+test("behaviors compile to target bindings + VM members + a RelayCommand body", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const msg = C.createNode("TextBlock"); msg.props.Text = "Hello"; C.addChild(tree, sp.id, msg);
+  const note = C.createNode("TextBlock"); note.props.Text = "Secret"; C.addChild(tree, sp.id, note);
+  const sld = C.createNode("Slider"); C.addChild(tree, sp.id, sld);
+  const btn = C.createNode("Button"); btn.props.Content = "Go"; C.addChild(tree, sp.id, btn);
+  btn.behaviors = [
+    { kind: "setText", target: msg.id, value: "Clicked!" },
+    { kind: "hide", target: note.id },
+    { kind: "setValue", target: sld.id, value: 75 },
+  ];
+  const { axaml, viewModel } = C.generate(tree);
+  xmlBalanced(axaml);
+  // target bindings injected (the literal Text on msg is replaced by a binding)
+  includes(axaml, 'Text="{Binding HelloText}"');
+  includes(axaml, 'IsVisible="{Binding SecretVisible}"');
+  includes(axaml, 'Value="{Binding SliderValue}"');
+  includes(axaml, 'Command="{Binding GoCommand}"');
+  // VM members with sensible initializers
+  includes(viewModel, 'private string helloText = "Hello";');
+  includes(viewModel, "private bool secretVisible = true;");
+  includes(viewModel, "private double sliderValue = 0;");
+  // the RelayCommand body sets each member
+  includes(viewModel, "private void Go()");
+  includes(viewModel, 'HelloText = "Clicked!";');
+  includes(viewModel, "SecretVisible = false;");
+  includes(viewModel, "SliderValue = 75;");
+  notIncludes(viewModel, "// TODO", "behavior command must have a working body");
+});
+
+test("behavior toggleVisible emits a negation; show/hide emit true/false", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const box = C.createNode("TextBlock"); box.props.Text = "Panel"; C.addChild(tree, sp.id, box);
+  const btn = C.createNode("Button"); btn.props.Content = "Toggle"; C.addChild(tree, sp.id, btn);
+  btn.behaviors = [{ kind: "toggleVisible", target: box.id }];
+  const { viewModel } = C.generate(tree);
+  includes(viewModel, "PanelVisible = !PanelVisible;");
+});
+
+/* a button that already has a Command binding reuses that command name for its behavior
+   body (no second synthesized command). */
+test("behaviors reuse an existing Command binding name", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const t = C.createNode("TextBlock"); t.props.Text = "x"; C.addChild(tree, sp.id, t);
+  const btn = C.createNode("Button"); btn.props.Content = "Hit"; btn.bindings.Command = "SaveCommand";
+  C.addChild(tree, sp.id, btn);
+  btn.behaviors = [{ kind: "hide", target: t.id }];
+  const { axaml, viewModel } = C.generate(tree);
+  includes(axaml, 'Command="{Binding SaveCommand}"');
+  includes(viewModel, "private void Save()");
+  notIncludes(viewModel, "private void HitCommand", "must not synthesize a second command");
+});
+
+/* two buttons hiding the SAME element share ONE bool member (keyed by target+prop). */
+test("two behaviors targeting the same element+prop share one VM member", () => {
+  const tree = C.createNode("Window");
+  const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
+  const box = C.createNode("TextBlock"); box.props.Text = "Box"; C.addChild(tree, sp.id, box);
+  const b1 = C.createNode("Button"); b1.props.Content = "Hide"; C.addChild(tree, sp.id, b1);
+  b1.behaviors = [{ kind: "hide", target: box.id }];
+  const b2 = C.createNode("Button"); b2.props.Content = "Show"; C.addChild(tree, sp.id, b2);
+  b2.behaviors = [{ kind: "show", target: box.id }];
+  const { viewModel } = C.generate(tree);
+  eq(viewModel.split("private bool boxVisible").length - 1, 1, "exactly one BoxVisible member");
+});
+
+test("cloneSubtree carries behaviors and recipes (duplicate keeps its logic)", () => {
+  const btn = C.createNode("Button");
+  btn.recipes = { Command: "add-random-item" };
+  btn.behaviors = [{ kind: "hide", target: "n99" }];
+  const clone = C.cloneSubtree(btn);
+  clone.behaviors[0].kind = "show";
+  clone.recipes.Command = "clear-all";
+  eq(btn.behaviors[0].kind, "hide", "behaviors deep-cloned");
+  eq(btn.recipes.Command, "add-random-item", "recipes cloned by value");
 });
 
 /* ==================== functional hardening: tree invariants under a storm ==================== */

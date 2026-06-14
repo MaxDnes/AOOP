@@ -543,6 +543,9 @@
       children: (node.children || []).map(cloneSubtree),
     };
     if (node.model) copy.model = JSON.parse(JSON.stringify(node.model));
+    /* carry the command recipe + click behaviors so a duplicated button keeps its logic */
+    if (node.recipes) copy.recipes = Object.assign({}, node.recipes);
+    if (node.behaviors) copy.behaviors = JSON.parse(JSON.stringify(node.behaviors));
     return copy;
   }
 
@@ -628,27 +631,156 @@
     return f ? f.name : null;
   }
 
+  /* The geometry-defining props of point/path shapes. These are what make the shape
+     visible at all, so they must be emitted EVEN when the value equals the catalog
+     default — otherwise a freshly-dropped Line/Polygon/Path exports with no geometry
+     (e.g. `<Polygon Fill="..."/>`), lays out as a 0x0 nothing, and the running app is
+     blank. This was THE "shapes don't show / no elements displayed" bug. */
+  const DEFINING_PROPS = {
+    Line: ["StartPoint", "EndPoint"],
+    Polygon: ["Points"],
+    Polyline: ["Points"],
+    Path: ["Data"],
+  };
+  /* a point/path shape is sized by its geometry, not Width/Height */
+  function isGeomShape(type) { return type === "Line" || type === "Polygon" || type === "Polyline" || type === "Path"; }
+
+  /* ---------------- programmable behaviors (Scratch-style, MVVM-compiled) ----------------
+     A behavior lives on a trigger element (a Button) as node.behaviors = [ {kind, target, value} ].
+     It compiles to pure MVVM: each controlled target property becomes a ViewModel-backed
+     binding (Text / IsVisible / Value), and the trigger button's [RelayCommand] sets those
+     properties. No code-behind — the exam requires strict MVVM, and this keeps it. */
+  const BEHAVIOR_ACTIONS = [
+    { id: "setText", label: "set text to…", needsValue: true },
+    { id: "clearText", label: "clear text", needsValue: false },
+    { id: "show", label: "show element", needsValue: false },
+    { id: "hide", label: "hide element", needsValue: false },
+    { id: "toggleVisible", label: "show / hide (toggle)", needsValue: false },
+    { id: "setValue", label: "set value to…", needsValue: true },
+  ];
+
+  function sanitizeIdent(s, fallback) {
+    let t = String(s == null ? "" : s).replace(/[^A-Za-z0-9]+/g, " ").trim()
+      .split(/\s+/).filter(Boolean)
+      .map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join("");
+    if (!t || !/^[A-Za-z_]/.test(t)) t = (fallback || "El") + t;
+    return t;
+  }
+  function behaviorBaseName(node) {
+    if (!node) return "El";
+    const p = node.props || {};
+    return sanitizeIdent(p.Content || p.Text || p.Header || "", node.type) || node.type;
+  }
+  /* the text-bearing property of a control: Content for Button/CheckBox/RadioButton, else Text */
+  function behaviorTextProp(node) {
+    const t = node ? node.type : "";
+    return (t === "Button" || t === "CheckBox" || t === "RadioButton") ? "Content" : "Text";
+  }
+  function csStr(s) {
+    return String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+      .replace(/\r?\n/g, "\\n").replace(/\t/g, "\\t");
+  }
+
+  /* Compile every node.behaviors[] into:
+       injected: { nodeId: { prop: {vmName, vmType, binit} } } — bindings to inject on targets
+                 (and a Command binding on a trigger button that lacks one), so attrsOf emits
+                 them and registers the matching ViewModel members.
+       commandBodies: { commandName: [lines] } — the [RelayCommand] body for each trigger. */
+  function behaviorPlan(tree) {
+    const injected = {};
+    const commandBodies = {};
+    const used = {};
+    /* reserve real binding member names so synthetic ones never collide */
+    walk(tree, function (n) {
+      Object.keys(n.bindings || {}).forEach(function (k) { if (n.bindings[k]) used[n.bindings[k]] = true; });
+    });
+    function memberFor(targetId, prop, vmType, binit) {
+      const target = findNode(tree, targetId);
+      if (!target) return null;
+      const real = (target.bindings || {})[prop];
+      if (real) return real;                                 // a real binding already exposes it
+      injected[targetId] = injected[targetId] || {};
+      if (injected[targetId][prop]) return injected[targetId][prop].vmName;
+      const suffix = prop === "IsVisible" ? "Visible" : prop; // Text->Text, Content->Content, Value->Value
+      let base = behaviorBaseName(target) + suffix, name = base, i = 2;
+      while (used[name]) name = base + (i++);
+      used[name] = true;
+      injected[targetId][prop] = { vmName: name, vmType: vmType, binit: binit };
+      return name;
+    }
+    walk(tree, function (node) {
+      const bhs = node.behaviors;
+      if (!Array.isArray(bhs) || !bhs.length) return;
+      let cmdName = (node.bindings && node.bindings.Command) || "";
+      if (!cmdName) {
+        cmdName = behaviorBaseName(node) + "Command";
+        injected[node.id] = injected[node.id] || {};
+        injected[node.id].Command = { vmName: cmdName, vmType: "command", binit: null };
+        used[cmdName] = true;
+      }
+      const lines = [];
+      bhs.forEach(function (a) {
+        if (!a || !a.kind || !a.target) return;
+        const target = findNode(tree, a.target);
+        if (!target) return;
+        if (a.kind === "setText" || a.kind === "clearText") {
+          const prop = behaviorTextProp(target);
+          const cur = (target.props || {})[prop] || "";
+          const vm = memberFor(a.target, prop, "string", ' = "' + csStr(cur) + '";');
+          if (vm) lines.push("        " + vm + ' = "' + csStr(a.kind === "clearText" ? "" : (a.value || "")) + '";');
+        } else if (a.kind === "show" || a.kind === "hide" || a.kind === "toggleVisible") {
+          const vm = memberFor(a.target, "IsVisible", "bool", " = true;");
+          if (vm) lines.push("        " + vm + (a.kind === "show" ? " = true;" : a.kind === "hide" ? " = false;" : " = !" + vm + ";"));
+        } else if (a.kind === "setValue") {
+          const cur = Number((target.props || {}).Value) || 0;
+          const vm = memberFor(a.target, "Value", "double", " = " + cur + ";");
+          if (vm) lines.push("        " + vm + " = " + (Number(a.value) || 0) + ";");
+        }
+      });
+      commandBodies[cmdName] = lines.length ? lines : ["        // TODO: add behavior actions in the Behaviors panel"];
+    });
+    return { injected: injected, commandBodies: commandBodies };
+  }
+
   /* attributes for one node: non-default catalog props (in catalog order),
-     attached props last, then bindings as {Binding X} */
-  function attrsOf(node, out) {
+     attached props last, then bindings as {Binding X}. `injected` (from behaviorPlan)
+     adds behavior-driven bindings to the relevant nodes. */
+  function attrsOf(node, out, injected) {
     const def = CATALOG[node.type] || { props: [], defaultProps: {} };
     const props = def.props || [];
     const defaults = def.defaultProps || {};
-    const bindings = node.bindings || {};
+    const inj = (injected && injected[node.id]) || null;
+    /* merge behavior-injected bindings into a local copy so the normal "binding wins"
+       logic suppresses any literal and emits {Binding X} for the controlled prop */
+    const bindings = Object.assign({}, node.bindings || {});
+    if (inj) Object.keys(inj).forEach(function (prop) {
+      if (bindings[prop] == null || bindings[prop] === "") bindings[prop] = inj[prop].vmName;
+    });
     const known = {};
     const attrs = [];
     const model = typedModelOf(node);
 
-    const geomShape = node.type === "Line" || node.type === "Polygon";
+    const geomShape = isGeomShape(node.type);
+    const defining = DEFINING_PROPS[node.type] || [];
     props.forEach((p) => {
       known[p.name] = true;
-      // Line/Polygon are point-defined; Width/Height are inert and would push the
-      // shape into the corner of an oversized box in the running app — never emit them.
+      // Line/Polygon/Path are point/path-defined; Width/Height are inert and would push
+      // the shape into the corner of an oversized box in the running app — never emit them.
       if (geomShape && (p.name === "Width" || p.name === "Height")) return;
       if (bindings[p.name] != null && bindings[p.name] !== "") return; // binding wins
+      const isDefining = defining.indexOf(p.name) !== -1;
       const v = node.props[p.name];
-      if (v == null || v === "") return;
-      if (v === defaults[p.name]) return;                              // default → omit
+      if (v == null || v === "") {
+        // a defining prop must NEVER be empty: fall back to the catalog default so the
+        // shape always has geometry to render (the blank-shape fix).
+        if (isDefining && defaults[p.name] != null && defaults[p.name] !== "") {
+          attrs.push(p.name + '="' + fmtValue(defaults[p.name]) + '"');
+        }
+        return;
+      }
+      // defining props are always emitted (even when equal to the default); every other
+      // prop is omitted when it matches the catalog default to keep the output clean.
+      if (!isDefining && v === defaults[p.name]) return;
       attrs.push(p.name + '="' + fmtValue(v) + '"');
     });
 
@@ -671,7 +803,12 @@
       attrs.push(name + '="{Binding ' + xmlEsc(vmName) + '}"');
       const pd = props.find((p) => p.name === name);
       let vmType = pd && pd.vmType ? pd.vmType : "string";
+      // a behavior-injected binding carries its own vmType (IsVisible -> bool, etc.) and
+      // an initializer for the generated [ObservableProperty] member.
+      let binit;
+      if (inj && inj[name]) { vmType = inj[name].vmType; binit = inj[name].binit; }
       const entry = { name: vmName, vmType };
+      if (binit != null) entry.binit = binit;
       if (vmType === "selectedItem") {
         entry.vmType = "selectedItem";
         entry.itemType = model ? model.className : "string";
@@ -827,13 +964,13 @@
     return lines.join("\n");
   }
 
-  function emitNode(node, depth, out) {
+  function emitNode(node, depth, out, injected) {
     if (!node) return "";
     if (!CATALOG[node.type]) {
       return indentOf(depth) + "<!-- skipped unknown element: "
         + xmlEsc(node.type).replace(/--/g, "- -") + " -->";
     }
-    const attrs = attrsOf(node, out);
+    const attrs = attrsOf(node, out, injected);
     const def = CATALOG[node.type];
     const model = typedModelOf(node);
 
@@ -850,7 +987,7 @@
     }
 
     const kids = (node.children || [])
-      .map((c) => emitNode(c, depth + 1, out))
+      .map((c) => emitNode(c, depth + 1, out, injected))
       .filter((s) => s !== "");
     if (kids.length === 0) return openTag(node, attrs, depth, true);
     return openTag(node, attrs, depth, false) + "\n"
@@ -870,7 +1007,8 @@
   function generate(tree) {
     const bindings = [];                       // collected {name, vmType, ...}
     const ns = projectNamespaceOf(tree);
-    const body = emitNode(tree.children[0], 2, bindings);
+    const plan = behaviorPlan(tree);           // Scratch-style behaviors -> injected bindings + command bodies
+    const body = emitNode(tree.children[0], 2, bindings, plan.injected);
     const axaml = [
       '<Window xmlns="https://github.com/avaloniaui"',
       '        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"',
@@ -894,7 +1032,7 @@
     ].join("\n");
     /* collect distinct typed models for the third (Models/Item.cs) pane */
     const models = collectModels(bindings);
-    const vmRes = emitViewModel(bindings, tree);
+    const vmRes = emitViewModel(bindings, tree, plan.commandBodies);
     const out = { axaml, viewModel: vmRes.code };
     /* regenerate-from-service adds its interface + InMemory impl to the Models pane
        so the paste compiles standalone (usings merged at the top of the file) */
@@ -1123,7 +1261,8 @@
     return f.name + " = _random.Next(0, 100),";
   }
 
-  function emitViewModel(bindings, tree) {
+  function emitViewModel(bindings, tree, commandBodies) {
+    commandBodies = commandBodies || {};
     /* dedupe by name, first descriptor wins */
     const seen = {};
     const list = [];
@@ -1243,7 +1382,10 @@
     observables.forEach((b) => {
       let type = propTypes[b.vmType];
       if (wantCounter && b.name === "Count") type = "int";
-      const init = type === "string" ? ' = "";' : (type === "IBrush" ? " = Brushes.Gray;" : ";");
+      // a behavior-injected member carries its own initializer (IsVisible -> true, a text
+      // member -> the target's current text). Otherwise use the type's sensible default.
+      const init = (b.binit != null) ? b.binit
+        : (type === "string" ? ' = "";' : (type === "IBrush" ? " = Brushes.Gray;" : ";"));
       blocks.push("    [ObservableProperty]\n    private " + type + " " + camel(b.name) + init);
     });
 
@@ -1317,10 +1459,16 @@
     /* auto-start an uncontrolled timer so the preset runs on launch (Summer P2) */
     if (autoStartTimer) ctorBody.push("        StartTimer();");
     if (svc || ctorBody.length) {
-      const ctorSig = svc
-        ? "    public MainWindowViewModel(" + svc.iface + " " + svc.paramName + ")"
-        : "    public MainWindowViewModel()";
-      blocks.push(ctorSig + "\n    {\n" + ctorBody.join("\n") + "\n    }");
+      if (svc) {
+        /* the DI ctor needs a provider, but the starter kit's App.axaml.cs constructs the
+           VM with `new MainWindowViewModel()`. Emit a parameterless ctor that chains to the
+           DI overload with the InMemory implementation so the pasted code compiles against
+           the unmodified harness (no CS7036), while keeping the injected overload for tests. */
+        blocks.push("    public MainWindowViewModel() : this(new " + svc.impl + "()) { }");
+        blocks.push("    public MainWindowViewModel(" + svc.iface + " " + svc.paramName + ")\n    {\n" + ctorBody.join("\n") + "\n    }");
+      } else {
+        blocks.push("    public MainWindowViewModel()\n    {\n" + ctorBody.join("\n") + "\n    }");
+      }
     }
 
     /* ---- command methods (recipe bodies) ---- */
@@ -1330,6 +1478,13 @@
     const sizeWProp = (observables.find((b) => b.vmType === "double" && /width/i.test(b.name)) || {}).name;
     const sizeHProp = (observables.find((b) => b.vmType === "double" && /height/i.test(b.name)) || {}).name;
     commands.forEach((b) => {
+      // a behavior-driven command (from the Behaviors panel) carries a precomputed body
+      // that sets the target ViewModel members; it takes precedence over any recipe.
+      const bb = commandBodies[b.name];
+      if (bb && bb.length) {
+        blocks.push("    [RelayCommand]\n    private void " + methodNameFor(b) + "()\n    {\n" + bb.join("\n") + "\n    }");
+        return;
+      }
       blocks.push(commandBlock(b, recipeOf[b.name], {
         coll: primaryColl, sel: primarySel, timer: timer, svc: svc, collModel: collModel,
         sizeWProp: sizeWProp, sizeHProp: sizeHProp,
@@ -1648,7 +1803,8 @@
                  canContain, addChild, removeNode, moveNode, walk, generate,
                  submission, foreignUsings,
                  syncIdSeq, cloneSubtree, placeAtCanvasPoint, serialize, deserialize,
-                 RECIPE_IDS, RECIPE_LABELS, TIMER_ACTIONS, TIMER_MECHANISMS, defaultTimer };
+                 RECIPE_IDS, RECIPE_LABELS, TIMER_ACTIONS, TIMER_MECHANISMS, defaultTimer,
+                 BEHAVIOR_ACTIONS };
   global.DESIGNER_CORE = CORE;
   if (typeof module !== "undefined" && module.exports) module.exports = CORE;
 })(typeof window !== "undefined" ? window : globalThis);
