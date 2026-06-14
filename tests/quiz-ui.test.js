@@ -151,3 +151,11 @@ test("retryWrongQueue returns only the missed questions from a run's results", (
   eq(rw[0], BANK[1].id, "first wrong preserved");
   eq(rw[1], BANK[2].id, "second wrong preserved");
 });
+
+test("exam sim targets 20 questions (matches the real 2026 exam: 20 MCQs)", () => {
+  eq(QUIZ.EXAM_N, 20, "EXAM_N must be 20 to match the 20-MCQ exam");
+  // the exam-mode label must advertise the same count, not a stale 25
+  const exam = QUIZ.MODES.find((m) => m.key === "exam");
+  ok(exam && /\b20\b/.test(exam.label), "exam mode label should say 20, got " + (exam && exam.label));
+  ok(!(exam && /\b25\b/.test(exam.label)), "exam mode label must not advertise 25");
+});

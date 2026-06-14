@@ -150,7 +150,7 @@ function generate(sel) {
     m.push("    }");
     m.push("");
   }
-  if (has("detail")) {
+  if (has("detail") && has("select")) {
     m.push("    // generated hook: runs automatically after SelectedItem changes");
     m.push("    partial void OnSelectedItemChanged(string? value)");
     m.push("    {");

@@ -21,6 +21,7 @@ var CATS = [
   { name: "Threading & Async",      color: "#f07178" },
   { name: "LINQ & JSON",            color: "#7fd962" },
   { name: "Collections & Generics", color: "#7fd962" },
+  { name: "Design Process",         color: "#ffb454" },
 ];
 
 var MODES = [
@@ -29,10 +30,10 @@ var MODES = [
   { key: "sprint", label: "10-question sprint",  desc: "quick random sample of 10" },
   { key: "weak10", label: "Weak sprint",         desc: "the 10 weakest questions only" },
   { key: "drill",  label: "Drill my wrongs",     desc: "every question you've ever missed" },
-  { key: "exam",   label: "Exam sim (25 + timer)", desc: "proportional sample, countdown, auto-finish" },
+  { key: "exam",   label: "Exam sim (20 + timer)", desc: "proportional sample, countdown, auto-finish" },
 ];
 
-var EXAM_N = 25;          // exam-sim target question count
+var EXAM_N = 20;          // exam-sim target question count (matches the real 2026 exam: 20 MCQs)
 var EXAM_PER_Q_MS = 30000; // 30s per question budget
 var DAY_MS = 24 * 60 * 60 * 1000;
 var DECAY_FACTOR = 0.3;   // weak weight multiplier for a correct answer in the last 24h

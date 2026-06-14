@@ -25,11 +25,14 @@ function pascal(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 /* a clean property name from a control name: strip the UI-role suffix.
-   SizeSlider -> Size, ColorSelector -> Color, ResetButton -> Reset, Output -> Output */
-function propName(controlName) {
+   SizeSlider -> Size, ColorSelector -> Color, ResetButton -> Reset, Output -> Output.
+   For list-like controls (ComboBox/ListBox) also strip a trailing List/View so a
+   ListBox named RecipeList yields Recipe (-> SelectedRecipe), not SelectedRecipeList. */
+function propName(controlName, isList) {
   var n = String(controlName || "").replace(
     /(Slider|Selector|ComboBox|Combo|ListBox|CheckBox|Button|Btn|TextBlock|TextBox|Block|Label|Field|Picker|Toggle|Control)$/,
     "");
+  if (isList) n = n.replace(/(List|View)$/, "");
   if (!n) n = controlName;
   return pascal(n);
 }
@@ -103,16 +106,17 @@ function spliceAll(src, repls) {
 }
 
 /* ---------------- code-behind parsing ---------------- */
-/* string-list fields: public List<string> colors = new(){ "a", "b" }; */
+/* list fields: public List<string> colors = new(){ "a", "b" }; — capture the
+   generic element type (List<Recipe> stays Recipe, not silently forced to string). */
 function parseListFields(cb) {
   var out = {};
-  var re = /(?:public|private|protected|internal|static|readonly|\s)*List<string>\s+(\w+)\s*=\s*new[^{;]*\{([^}]*)\}/g;
+  var re = /(?:public|private|protected|internal|static|readonly|\s)*List<(\w+)>\s+(\w+)\s*=\s*new[^{;]*\{([^}]*)\}/g;
   var m;
   while ((m = re.exec(cb))) {
     var items = [];
     var ire = /"([^"]*)"/g, im;
-    while ((im = ire.exec(m[2]))) items.push(im[1]);
-    out[m[1]] = items;
+    while ((im = ire.exec(m[3]))) items.push(im[1]);
+    out[m[2]] = { elem: m[1], items: items };
   }
   return out;
 }
@@ -207,28 +211,46 @@ function toMvvm(axaml, codeBehind, opts) {
   var comboSel = {};   // controlName -> selected property (SelectedColor)
   Object.keys(byName).forEach(function (nm) {
     var t = byName[nm];
+    var isList = t.tag === "ComboBox" || t.tag === "ListBox";
     var hasItems = Object.prototype.hasOwnProperty.call(itemsSources, nm);
-    var selUsed = new RegExp("\\b" + nm + "\\.SelectedItem\\b").test(codeBehind);
-    if (t.tag !== "ComboBox" && t.tag !== "ListBox" && !hasItems && !selUsed) return;
+    // SelectedItem is only "used" if the code reads it, a SelectionChanged handler
+    // exists, or the axaml already binds/sets a SelectedItem on this control.
+    var selUsed = new RegExp("\\b" + nm + "\\.SelectedItem\\b").test(codeBehind) ||
+      handlers.some(function (h) { return h.control === nm && h.event === "SelectionChanged"; }) ||
+      attrVal(t.attrs, "SelectedItem") != null;
+    if (!isList && !hasItems && !selUsed) return;
 
-    var base = propName(nm);
-    var selProp = "Selected" + base;
+    var base = propName(nm, isList);
     var first = "";
     var listName;
+    var elemType = "string";
     if (hasItems) {
       var field = itemsSources[nm];
       listName = pascal(field);
-      var items = listFields[field] || [];
+      var lf = listFields[field] || { elem: "string", items: [] };
+      var items = lf.items;
+      elemType = lf.elem || "string";
       first = items[0] || "";
-      lists.push({ name: listName, type: "List<string>", items: items });
+      lists.push({ name: listName, type: "List<" + elemType + ">", items: items });
       setBind(nm, "ItemsSource", "{Binding " + listName + "}");
     }
-    ensureProp(camelField(selProp), "string", JSON.stringify(first));
-    comboSel[nm] = selProp;
-    setBind(nm, "SelectedItem", "{Binding " + selProp + "}");
+    // only auto-add a SelectedItem property + binding when it is actually used
+    if (selUsed) {
+      var selProp = "Selected" + base;
+      if (elemType === "string") {
+        ensureProp(camelField(selProp), "string", JSON.stringify(first));
+      } else {
+        // unknown element type: don't silently emit a wrong type — flag it.
+        ensureProp(camelField(selProp), elemType + "?", "null");
+        todos.push("SelectedItem on " + nm + " is a " + elemType +
+                   " (not a string) — confirm the " + selProp + " property type and default.");
+      }
+      comboSel[nm] = selProp;
+      setBind(nm, "SelectedItem", "{Binding " + selProp + "}");
+    }
     dropAttr(nm, "SelectedIndex");
-    notes.push("ComboBox " + nm + " -> ItemsSource " + (listName || "(list)") +
-               " + SelectedItem " + selProp + ".");
+    notes.push((t.tag || "ComboBox") + " " + nm + " -> ItemsSource " + (listName || "(list)") +
+               (selUsed ? " + SelectedItem Selected" + base : "") + ".");
   });
 
   // 3) walk handlers
@@ -296,7 +318,8 @@ function toMvvm(axaml, codeBehind, opts) {
     for (var nm in comboSel) {
       if (comboSel[nm] === selProp) {
         var field = itemsSources[nm];
-        var items = field ? (listFields[field] || []) : [];
+        var lf = field ? listFields[field] : null;
+        var items = lf ? lf.items : [];
         return items[0] || "Black";
       }
     }
@@ -305,6 +328,8 @@ function toMvvm(axaml, codeBehind, opts) {
 
   var view = buildView(axaml, tags, byName, bind, removeOnControl, commands, ns);
   var viewModel = buildViewModel(props, lists, bridges, commands, ns);
+
+  notes.push("DataContext: the View declares x:DataType + a Design.DataContext for the previewer, but the RUNTIME DataContext is set by the PROVIDED project (App.axaml.cs, or the exam's MainWindow.axaml.cs) — NOT by these two submitted files. Do not set DataContext in the submitted axaml.");
 
   if (!handlers.length && !Object.keys(itemsSources).length) {
     notes.push("No event handlers or ItemsSource setups were found in the code-behind — the ViewModel is a skeleton; fill in the behaviour from the original logic.");
@@ -327,12 +352,22 @@ function buildView(axaml, tags, byName, bind, removeOnControl, commands, ns) {
         append: [
           { key: "xmlns:vm", value: "using:" + ns + ".ViewModels" },
           { key: "x:DataType", value: "vm:MainWindowViewModel" },
+          { key: "xmlns:d", value: "http://schemas.microsoft.com/expression/blend/2008" },
         ],
       };
-      // avoid duplicate xmlns:vm / x:DataType if already present
-      if (attrVal(t.attrs, "xmlns:vm") != null) mods.append.shift();
-      if (attrVal(t.attrs, "x:DataType") != null) mods.append = mods.append.filter(function (a) { return a.key !== "x:DataType"; });
-      repls.push({ start: t.start, end: t.end, text: buildOpenTag(t, mods) });
+      // avoid duplicate xmlns:vm / x:DataType / xmlns:d if already present
+      mods.append = mods.append.filter(function (a) { return attrVal(t.attrs, a.key) == null; });
+      var rootText = buildOpenTag(t, mods);
+      // Design.DataContext: previewer-only, like the designer/asynclab outputs. The
+      // RUNTIME DataContext is set by the provided project (App.axaml.cs or the
+      // MainWindow.axaml.cs the exam gives you), NOT by these two submitted files.
+      if (!t.selfClose) {
+        rootText += "\n    <Design.DataContext>" +
+          "\n        <!-- previewer only; the real DataContext is set by the provided project (App.axaml.cs), not these two files -->" +
+          "\n        <vm:MainWindowViewModel />" +
+          "\n    </Design.DataContext>";
+      }
+      repls.push({ start: t.start, end: t.end, text: rootText });
       return;
     }
     if (!nm) return;

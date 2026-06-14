@@ -1,5 +1,6 @@
 "use strict";
 const { test, eq, ok } = require("./t.js");
+const fs = require("fs");
 global.window = global;
 const BANK = require("../data/quiz-bank.js");
 const CATS = ["Exam Theory", "OOP", "SOLID", "Avalonia & MVVM", "Testing", "Threading & Async", "LINQ & JSON", "Collections & Generics", "Design Process"];
@@ -38,4 +39,19 @@ test("explanations are exam-tactic length (250-460 chars)", () => {
     const n = q.explain.length;
     ok(n >= 250 && n <= 460, q.id + " explain length " + n + " out of 250-460");
   });
+});
+
+test("lnq-18s model answer uses a neutral filename, not the stale Problem_4_Query_Results.json", () => {
+  const q = BANK.find((x) => x.id === "lnq-18s");
+  ok(q, "lnq-18s question exists");
+  ok(q.answer.indexOf("Problem_4_Query_Results.json") === -1, "stale filename must be gone from the model code");
+  ok(/WriteAllText\("results\.json"/.test(q.answer), "model code writes the neutral results.json name");
+});
+
+test("HashSet collections topic does not claim a guaranteed iteration order", () => {
+  const src = fs.readFileSync(__dirname + "/../data/collections.js", "utf8");
+  // the old demo comment claimed "first-seen order kept" — must be gone
+  ok(src.indexOf("first-seen order kept") === -1, "must not imply HashSet keeps insertion order");
+  // and must state explicitly that order is not guaranteed
+  ok(/iteration order is not guaranteed/i.test(src), "HashSet doc must say iteration order is NOT guaranteed");
 });

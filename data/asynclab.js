@@ -22,7 +22,7 @@ const PATTERN_DEFS = [
 
 const MECH_DEFS = [
   { key: "timer", label: "DispatcherTimer",       desc: "ticks on the UI thread already" },
-  { key: "task",  label: "Task.Delay + CTS",      desc: "needs Dispatcher.UIThread.Post" },
+  { key: "task",  label: "Task.Delay + CTS",      desc: "needs Dispatcher.UIThread (InvokeAsync/Post)" },
   { key: "both",  label: "Both",                  desc: "primary + alternate region" },
 ];
 

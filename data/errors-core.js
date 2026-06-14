@@ -112,6 +112,24 @@ var ENTRIES = [
     file: "Program.cs",
     tags: ["more than one entry point", "main", "entry point", "program.cs"],
   },
+  {
+    id: "cs1998", code: "CS1998", cat: "compile",
+    title: "This async method lacks 'await' operators and will run synchronously",
+    msg: "async method lacks 'await' operators and will run synchronously",
+    cause: "You marked a method `async Task` (e.g. an `[RelayCommand] async Task` in Problem 3) but never `await` anything inside it, so the `async` does nothing and the body runs synchronously on the caller's thread.",
+    fix: "Either add the awaited work — `await Task.Delay(...)` / `await SomeAsyncCall()` — so it really runs asynchronously, or drop `async` and return `Task.CompletedTask` from a plain `Task` method when there is genuinely nothing to await.",
+    file: "the ViewModel (.cs)",
+    tags: ["async method lacks", "await operators", "run synchronously", "async", "task", "relaycommand", "warning"],
+  },
+  {
+    id: "cs4014", code: "CS4014", cat: "compile",
+    title: "Call is not awaited; execution continues before the call completes",
+    msg: "Because this call is not awaited, execution of the current method continues",
+    cause: "You called an async method without `await` (fire-and-forget), so the rest of the method keeps running before that work finishes — exceptions are swallowed and ordering is not guaranteed.",
+    fix: "`await` the call: `await StartAsync();`. If the fire-and-forget is genuinely intentional, assign it to a discard with an explicit comment — `_ = StartAsync(); // intentional fire-and-forget` — so the warning goes away and the intent is documented.",
+    file: "the ViewModel (.cs)",
+    tags: ["not awaited", "execution of the current method continues", "fire-and-forget", "await", "async", "discard", "warning"],
+  },
 
   /* ---------------- mvvm toolkit ---------------- */
   {
@@ -122,6 +140,15 @@ var ENTRIES = [
     fix: "Declare the class as `public partial class MainWindowViewModel : ObservableObject`. The field stays lowercase (`private int _count;`) and you bind to the generated PascalCase name (`Count`).",
     file: "the ViewModel (.cs)",
     tags: ["partial", "observableproperty", "relaycommand", "observableobject", "source generator", "not generated"],
+  },
+  {
+    id: "mvvmtk0019", code: "MVVMTK0019", cat: "mvvm",
+    title: "[ObservableProperty] on a field in a class that isn't partial / doesn't inherit ObservableObject",
+    msg: "The MVVM Toolkit ... ObservableProperty ... must inherit",
+    cause: "The CommunityToolkit source generator (diagnostics MVVMTK0019 / MVVMTK0045) refuses to run: a field has `[ObservableProperty]` but its containing class is not `partial`, or it doesn't inherit `ObservableObject` (nor declare `[INotifyPropertyChanged]` / `[ObservableObject]`). No public property is generated, so every binding to it fails.",
+    fix: "Make the class `partial` and inherit `ObservableObject`: `public partial class MainWindowViewModel : ObservableObject`. (Or annotate it with `[INotifyPropertyChanged]` / `[ObservableObject]` and keep it `partial`.) Then bind to the generated PascalCase property.",
+    file: "the ViewModel (.cs)",
+    tags: ["mvvmtk0019", "mvvmtk0045", "mvvm toolkit", "observableproperty", "partial", "observableobject", "inotifypropertychanged", "source generator"],
   },
   {
     id: "field-case", cat: "mvvm",
@@ -144,13 +171,13 @@ var ENTRIES = [
     tags: ["unable to resolve type", "vm", "xmlns", "prefix", "using", "x:datatype", "examapp"],
   },
   {
-    id: "compiled-binding", cat: "xaml",
+    id: "compiled-binding", code: "AVLN0004", cat: "xaml",
     title: "A compiled binding was used without an x:DataType",
     msg: "compiled binding ... without ... x:DataType",
-    cause: "Avalonia compiled bindings need to know the data type they bind against. You have `{Binding Something}` but no `x:DataType` is in scope.",
+    cause: "Avalonia compiled bindings need to know the data type they bind against. You have `{Binding Something}` but no `x:DataType` is in scope (diagnostic AVLN0004 / AVLN:0004).",
     fix: "Add `x:DataType=\"vm:MainWindowViewModel\"` on the root `<Window>` (with `xmlns:vm=\"using:YourProject.ViewModels\"`). Inside a `DataTemplate` / `ItemsControl`, set `x:DataType` to the item type on the template.",
     file: "the .axaml (root, or the DataTemplate)",
-    tags: ["compiled binding", "x:datatype", "datatype", "binding"],
+    tags: ["compiled binding", "x:datatype", "datatype", "binding", "avln0004", "avln:0004"],
   },
   {
     id: "xaml-no-property", cat: "xaml",
@@ -339,7 +366,7 @@ var ENTRIES = [
 function match(text) {
   text = String(text == null ? "" : text).toLowerCase();
   if (!text.trim()) return [];
-  var codes = text.match(/\b(cs\d{3,4}|nu\d{3,4}|avln\d+|xamlil\d*)\b/g) || [];
+  var codes = text.match(/\b(cs\d{3,4}|nu\d{3,4}|mvvmtk\d+|avln\d+|xamlil\d*)\b/g) || [];
   var scored = ENTRIES.map(function (e) {
     var score = 0, why = [];
     if (e.code && codes.indexOf(e.code.toLowerCase()) !== -1) { score += 100; why.push(e.code); }

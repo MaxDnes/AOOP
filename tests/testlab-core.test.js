@@ -129,6 +129,27 @@ test("commandName strips Async suffix and appends Command", () => {
   eq(C.commandName("save"), "SaveCommand");
 });
 
+/* ---- regression (testlab-3): a fully-qualified collection return type must still
+   be recognised as a collection. Previously a leading namespace qualifier (e.g.
+   System.Collections.Generic.List<T>) fell through to the default `object`, so
+   the assert heuristics emitted `default!` and a wrong-category test. Stripping
+   the leading namespace before the collection test fixes this. */
+test("returnCategory recognises fully-qualified collection return types", () => {
+  /* the bug exactly */
+  eq(C.returnCategory("System.Collections.Generic.List<string>"), "collection");
+  eq(C.returnCategory("System.Collections.Generic.IEnumerable<int>"), "collection");
+  /* and inside a Task<...> */
+  eq(C.returnCategory("Task<System.Collections.Generic.List<int>>"), "collection");
+  /* plain (unqualified) types and scalars are unchanged */
+  eq(C.returnCategory("List<string>"), "collection");
+  eq(C.returnCategory("bool"), "bool");
+  eq(C.returnCategory("int"), "numeric");
+  eq(C.returnCategory("string"), "string");
+  eq(C.returnCategory("void"), "void");
+  /* a fully-qualified NON-collection type still resolves to object, not a false collection */
+  eq(C.returnCategory("ExamApp.Models.Order"), "object");
+});
+
 /* ============ generator: plain xUnit ============ */
 test("plain generator: [Fact], naming, usings, namespace, balanced", () => {
   const m = parse(SERVICE);
@@ -329,6 +350,64 @@ test("async generator: timing-tolerant InRange + stop/reset sequence + rationale
   parenBalanced(code);
 });
 
+/* ---- regression (testlab-1): genAsync must not emit a counter-shaped test for a
+   NON-counter async VM. The old code assumed a Start/Stop loop + a numeric counter
+   for ANY async class, so a string-property async VM got
+   `Assert.InRange(vm.Forecast, 2, 4)` and stray Start/Stop/Reset references that
+   do not compile. A non-counter async class must get a clearly-marked TODO
+   scaffold (await the real command, leave the assert to the author) instead. */
+const ASYNC_NON_COUNTER_VM = `
+using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+namespace ExamApp.ViewModels;
+public partial class WeatherViewModel : ObservableObject
+{
+    [ObservableProperty] private string? forecast;
+    [RelayCommand]
+    private async Task Refresh() { Forecast = await Task.FromResult("sunny"); }
+}`;
+
+test("async generator: non-counter async VM gets a TODO scaffold, never Start/Increment/InRange asserts", () => {
+  const m = parse(ASYNC_NON_COUNTER_VM, "WeatherViewModel.cs");
+  const code = C.genAsync(m.classes[0]).code;
+  /* the counter-shaped asserts/commands must be gone for this VM */
+  notIncludes(code, "StartCommand", "no Start command reference for a non-counter VM");
+  notIncludes(code, "StopCommand", "no Stop command reference for a non-counter VM");
+  notIncludes(code, "Increment", "no Increment scaffolding for a non-counter VM");
+  notIncludes(code, "Assert.InRange(", "no timing InRange assert for a non-counter VM");
+  notIncludes(code, "Assert.Equal(0, vm.Forecast)", "no numeric assert on a string property");
+  /* instead it awaits the real async command and marks a TODO for the assert */
+  includes(code, "await vm.RefreshCommand.ExecuteAsync(null);");
+  includes(code, "not a looping counter");
+  braceBalanced(code);
+  parenBalanced(code);
+});
+
+test("async generator: counter VM still gets the counter-shaped timing test (gate is not over-broad)", () => {
+  const m = parse(COUNTER_VM);
+  const code = C.genAsync(m.classes[0]).code;
+  includes(code, "Assert.InRange(vm.Count, 2, 4)");
+  includes(code, "_ = vm.StartCommand.ExecuteAsync(null)");
+  includes(code, "Assert.Equal(0, vm.Count)");
+});
+
+test("async generator: non-VM async service gets a compilable awaited-method scaffold", () => {
+  const svc = `
+using System.Threading.Tasks;
+public class FetchService
+{
+    public async Task<string> Fetch(int id) => await Task.FromResult("x");
+}`;
+  const m = parse(svc, "FetchService.cs");
+  const code = C.genAsync(m.classes[0]).code;
+  includes(code, "var result = await sut.Fetch(");
+  notIncludes(code, "Assert.InRange(", "no timing assert for a plain async service");
+  notIncludes(code, "StartCommand", "no Start command for a plain service");
+  braceBalanced(code);
+  parenBalanced(code);
+});
+
 /* ============ generator: headless ============ */
 test("headless: TestAppBuilder + AvaloniaFact present, structure matches starter kit", () => {
   const files = C.genHeadless({ viewModel: "CounterViewModel", window: "MainWindow", command: "StartCommand" });
@@ -341,6 +420,52 @@ test("headless: TestAppBuilder + AvaloniaFact present, structure matches starter
   includes(ui, "window.Show();");
   includes(ui, "for (var i = 0; i < 100; i++)");
   braceBalanced(builder);
+  braceBalanced(ui);
+  parenBalanced(ui);
+});
+
+/* ---- regression (testlab-4): the 100x per-click headless loop is misleading for
+   a looping Start command (one click starts the loop; clicking 100x does nothing
+   useful). When the VM's first command is a looping Start, the headless test must
+   emit a single Start click + a Stop click, not a 100x per-click loop. The default
+   (non-looping) output keeps the 100x loop unchanged. */
+test("headless: looping Start emits single Start + Stop click, not a 100x per-click loop", () => {
+  const counter = `
+using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+namespace ExamApp.ViewModels;
+public partial class CounterViewModel : ObservableObject
+{
+    [ObservableProperty] private int count;
+    private bool _running;
+    [RelayCommand]
+    private async Task Start() { _running = true; while (_running) { Count++; await Task.Delay(100); } }
+    [RelayCommand]
+    private void Stop() => _running = false;
+}`;
+  const m = parse(counter, "CounterViewModel.cs");
+  const ui = C.generate(m, { headless: true })
+    .find((f) => f.fileName === "HeadlessUiTests.cs").code;
+  /* the misleading 100x per-click loop must be gone for a looping start */
+  notIncludes(ui, "for (var i = 0; i < 100; i++)",
+    "a looping Start must not be driven by a 100x per-click loop");
+  /* single Start click + a Stop click (a control found by Name, then clicked) */
+  includes(ui, "starts a looping command");
+  includes(ui, 'window.FindControl<Button>("StopButton")');
+  includes(ui, "stop?.Command?.Execute(stop.CommandParameter); // stop the loop so it cannot leak");
+  /* never await a command in the headless test (would block the host) */
+  notIncludes(ui, "ExecuteAsync", "no awaited command in the headless looping path");
+  braceBalanced(ui);
+  parenBalanced(ui);
+});
+
+test("headless: a non-looping command keeps the 100x per-click loop (default unchanged)", () => {
+  /* explicit genHeadless with no loopingStart flag stays byte-compatible */
+  const ui = C.genHeadless({ viewModel: "CounterViewModel", command: "AddCommand" })
+    .find((f) => f.fileName === "HeadlessUiTests.cs").code;
+  includes(ui, "for (var i = 0; i < 100; i++)");
+  notIncludes(ui, "starts a looping command");
   braceBalanced(ui);
   parenBalanced(ui);
 });
@@ -495,6 +620,19 @@ test("testlab.js never touches document at load time (only inside functions)", (
   const src = fs.readFileSync(__dirname + "/../data/testlab.js", "utf8");
   const topLevel = src.replace(/function[\s\S]*?\n\}/g, "");
   ok(topLevel.indexOf("document.") === -1, "document.* found at top level");
+});
+
+/* ---- regression (testlab-2): the Test Lab intro must be format-neutral for 2026.
+   Unit testing is no longer a submitted file (no Problem 3 unit-test task), but it
+   is still MCQ material and a self-check of P2/P3 logic, so the intro must not call
+   it "the Problem 3 unit-test task". */
+test("testlab.js intro is format-neutral (self-check P2/P3, not the Problem 3 unit-test task)", () => {
+  const fs = require("fs");
+  const src = fs.readFileSync(__dirname + "/../data/testlab.js", "utf8");
+  notIncludes(src, "Paste the Problem 3 class or ViewModel",
+    "stale 'Problem 3' framing must be reworded to a format-neutral self-check");
+  includes(src, "P2/P3", "intro frames the tool as a P2/P3 self-check");
+  includes(src, "self-check", "intro describes self-checking your own logic");
 });
 
 test("testlab UI module loads under Node and exposes render/init", () => {

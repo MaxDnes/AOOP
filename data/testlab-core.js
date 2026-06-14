@@ -193,6 +193,11 @@
     if (t === "Task" || t === "ValueTask") return "void";          /* async no-result */
     var taskMatch = t.match(/^(Task|ValueTask)<(.+)>$/);
     if (taskMatch) t = taskMatch[2];
+    /* strip a leading namespace qualifier on the simple type name (the dotted
+       segments before the first generic arg / array), so a fully-qualified
+       collection like System.Collections.Generic.List<T> is still recognised
+       as List<T>. Dots inside generic args (`<...>`) are left untouched. */
+    t = t.replace(/^(?:[A-Za-z_]\w*\.)+(?=[A-Za-z_]\w*(?:<|\[|$))/, "");
     if (t === "bool" || t === "bool?") return "bool";
     if (/^(int|long|short|byte|uint|double|float|decimal|int\?|double\?|long\?)$/.test(t)) return "numeric";
     if (t === "string" || t === "string?") return "string";
@@ -920,6 +925,30 @@
       ? "        // Control names taken from the parsed view's Name=\"...\" attributes."
       : "        // TODO: rename \"" + buttonName + "\" / \"" + textName + "\" to the Name=\"...\" your AXAML gives the\n" +
         "        // button and the result TextBlock (FindControl returns null otherwise).";
+    /* For a looping Start command a 100x per-click loop is misleading (one click
+       starts an unbounded loop; clicking again does nothing useful). Emit a single
+       Start click + a Stop click instead, naming the stop command when known. */
+    var stopName = opts.stopButton || "StopButton";
+    var actLines = opts.loopingStart
+      ? [
+          "        // Act: this button starts a looping command — clicking it ONCE starts the loop.",
+          "        // Click it once to start, let it run, then click the Stop button so the loop ends",
+          "        // (a 100x per-click loop would be wrong here — the loop runs on its own once started).",
+          "        button!.Command?.Execute(button.CommandParameter);",
+          "        // TODO: let the loop tick (the headless dispatcher pumps when you yield), e.g.",
+          "        // Dispatcher.UIThread.RunJobs(); / pump a few frames, then click Stop:",
+          "        // TODO: rename \"" + stopName + "\" to the Name=\"...\" your AXAML gives the Stop button.",
+          "        var stop = window.FindControl<Button>(\"" + stopName + "\");",
+          "        stop?.Command?.Execute(stop.CommandParameter); // stop the loop so it cannot leak",
+        ]
+      : [
+          "        // Act: click the real button N times via its bound Command (a click, not an",
+          "        // awaited VM call — awaiting a looping command would block the headless host).",
+          "        for (var i = 0; i < 100; i++)",
+          "        {",
+          "            button!.Command?.Execute(button.CommandParameter);",
+          "        }",
+        ];
     var ui = [
       "using Avalonia.Controls;",
       "using Avalonia.Headless;",
@@ -950,23 +979,20 @@
       "        Assert.NotNull(button);",
       "        Assert.NotNull(text);",
       "",
-      "        // Act: click the real button N times via its bound Command (a click, not an",
-      "        // awaited VM call — awaiting a looping command would block the headless host).",
-      "        for (var i = 0; i < 100; i++)",
-      "        {",
-      "            button!.Command?.Execute(button.CommandParameter);",
-      "        }",
+    ].concat(actLines).concat([
       "",
       "        // Assert: the bound TextBlock reflects the new state.",
       (cmd
         ? "        // (the button is bound to " + cmd + " in the AXAML)"
         : "        // (bind the button's Command to the relevant RelayCommand in the AXAML)"),
-      "        // TODO: assert the expected text, e.g. Assert.Equal(\"100\", text!.Text);",
+      (opts.loopingStart
+        ? "        // TODO: assert the expected text after Start/Stop, e.g. Assert.NotEqual(\"0\", text!.Text);"
+        : "        // TODO: assert the expected text, e.g. Assert.Equal(\"100\", text!.Text);"),
       "        Assert.NotNull(text!.Text);",
       "    }",
       "}",
       "",
-    ].join("\n");
+    ]).join("\n");
 
     return [
       { fileName: "TestAppBuilder.cs", code: builder },
@@ -974,13 +1000,130 @@
     ];
   }
 
+  /* Numeric counter property for a looping-counter VM (an [ObservableProperty]
+     int, or any numeric public property). Returns null when none is detected,
+     which is one signal that the class is NOT a counter. */
+  function counterPropName(cls) {
+    if (cls.observableProps[0] &&
+        returnCategory(cls.observableProps[0].type) === "numeric") {
+      return cls.observableProps[0].property;
+    }
+    var numProp = cls.properties.filter(function (p) {
+      return returnCategory(p.type) === "numeric";
+    })[0];
+    return numProp ? numProp.name : null;
+  }
+
+  /* True only when the class is shaped like the exam's looping counter: a
+     `Start`-style command that runs an unbounded async loop AND a numeric
+     counter property the timing asserts can read. The counter-shaped async
+     test (fire Start, Delay, Stop, Assert.InRange on the counter) ONLY compiles
+     for such a VM; for any other async class it would emit broken asserts
+     (Start/Stop/Increment references + numeric asserts on a non-numeric prop),
+     so we emit a TODO scaffold instead. */
+  function looksLikeCounter(cls) {
+    var startCmd = findCmd(cls, /^start/i);
+    if (!startCmd || !isLoopingStart(startCmd, cls.commands)) return false;
+    return !!counterPropName(cls);
+  }
+
+  /* Async scaffold for a NON-counter async class. The counter-shaped test makes
+     compile-time assumptions (a Start/Stop loop + a numeric counter) that do not
+     hold here, so instead of emitting broken Start/Increment/InRange asserts we
+     emit one clearly-marked TODO [Fact] per async command (or a single TODO when
+     none is detectable) that awaits the command and leaves the assert to the
+     author. Everything emitted compiles. */
+  function genAsyncScaffold(cls) {
+    var sut = buildSut(cls);
+    var asyncCmds = (cls.commands || []).filter(function (c) { return c.isAsync; });
+    var asyncMethods = (cls.methods || []).filter(function (m) {
+      return m.isAsync && !m.isCommandBacking;
+    });
+    var L = [];
+    L.push("public class " + cls.name + "AsyncTests");
+    L.push("{");
+
+    var emitted = 0;
+    asyncCmds.forEach(function (cmd, i) {
+      if (i > 0) L.push("");
+      L.push("    [Fact]");
+      L.push("    public async Task " + cmd.method + "Command_WhenExecuted_BehavesAsExpected()");
+      L.push("    {");
+      L.push("        // Arrange");
+      L.push("        var vm = " + sut.ctorCall + ";");
+      L.push("");
+      L.push("        // Act");
+      L.push("        await vm." + cmd.command + ".ExecuteAsync(null);");
+      L.push("");
+      L.push("        // Assert");
+      L.push("        // TODO: assert the observable effect of awaiting " + cmd.command +
+        " (this is not a looping counter, so no timing/InRange assert is assumed).");
+      L.push("    }");
+      emitted++;
+    });
+    asyncMethods.forEach(function (mt) {
+      if (emitted > 0) L.push("");
+      L.push("    [Fact]");
+      L.push("    public async Task " + mt.name + "_WhenAwaited_BehavesAsExpected()");
+      L.push("    {");
+      L.push("        // Arrange");
+      L.push("        var sut = " + sut.ctorCall + ";");
+      L.push("");
+      L.push("        // Act");
+      var call = mt.name + "(" + mt.params.map(function (p) { return dummyArg(p.type); }).join(", ") + ")";
+      if (returnCategory(mt.returnType) === "void") {
+        L.push("        await sut." + call + ";");
+        L.push("");
+        L.push("        // Assert");
+        L.push("        // TODO: assert the observable effect of awaiting " + mt.name + ".");
+      } else {
+        L.push("        var result = await sut." + call + ";");
+        L.push("");
+        L.push("        // Assert");
+        L.push("        // TODO: assert the awaited result of " + mt.name + ".");
+        L.push("        _ = result;");
+      }
+      L.push("    }");
+      emitted++;
+    });
+
+    if (!emitted) {
+      L.push("    [Fact]");
+      L.push("    public void Construction_Succeeds()");
+      L.push("    {");
+      L.push("        // No async command or method was detected on " + cls.name + ".");
+      L.push("        // TODO: drive the relevant async work and assert its result here.");
+      L.push("        var sut = " + sut.ctorCall + ";");
+      L.push("        Assert.NotNull(sut);");
+      L.push("    }");
+    }
+
+    L.push("}");
+    L.push("");
+    L.push("/*");
+    L.push(" * This async class is not a looping counter, so the timing-tolerant");
+    L.push(" * Start/Stop/InRange pattern does not apply. Each [Fact] awaits an async");
+    L.push(" * command/method and leaves a TODO for the concrete assert. If the class");
+    L.push(" * IS a timer-driven counter (a Start loop + a numeric property), rename the");
+    L.push(" * Start command to start with \"Start\" so the counter-shaped test is used.");
+    L.push(" */");
+
+    var usings = dedup([
+      "using System.Threading.Tasks;",
+      cls.isToolkitViewModel ? "using ExamApp.ViewModels;" : "using ExamApp;",
+      "using Xunit;",
+    ]);
+
+    return { fileName: cls.name + "AsyncTests.cs", code: fileHeader(usings) + L.join("\n") + "\n" };
+  }
+
   /* ---- Generator 4: async tests ---- */
   function genAsync(cls) {
+    if (!looksLikeCounter(cls)) return genAsyncScaffold(cls);
+
     var sut = buildSut(cls);
     var L = [];
-    var counterProp = (cls.observableProps[0] && cls.observableProps[0].property) ||
-      (cls.properties.filter(function (p) { return returnCategory(p.type) === "numeric"; })[0] || {}).name ||
-      "Count";
+    var counterProp = counterPropName(cls) || "Count";
 
     var startCmd = findCmd(cls, /^start/i);
     var stopCmd = findCmd(cls, /^stop/i);
@@ -1973,11 +2116,20 @@
       var vmCls = testable.filter(function (c) { return c.isToolkitViewModel; })[0];
       var vmName = vmCls ? vmCls.name : "MainWindowViewModel";
       var winName = options.viewClass || "MainWindow";
-      var driveCmd = vmCls && vmCls.commands[0] ? vmCls.commands[0].command : null;
+      var firstCmd = vmCls && vmCls.commands[0] ? vmCls.commands[0] : null;
+      var driveCmd = firstCmd ? firstCmd.command : null;
+      /* If the button's bound command is a looping Start, a 100x per-click loop
+         is misleading (one click starts the loop), so emit a single Start +
+         Stop click instead — name the breaker command's member when one exists. */
+      var loopingStart = !!(firstCmd && vmCls && isLoopingStart(firstCmd, vmCls.commands));
       genHeadless({
         viewModel: vmName,
         viewClass: winName,
         command: driveCmd,
+        loopingStart: loopingStart,
+        /* stopButton stays a placeholder Name="..." the student renames; the
+           breaker is a command member, not a control name, so we don't use it. */
+        stopButton: options.stopButton,
         targetNamespace: options.targetNamespace,
         buttonName: options.buttonName,
         textName: options.textName,

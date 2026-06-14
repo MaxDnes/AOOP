@@ -1526,7 +1526,7 @@ var BANK = [
 {
   id: "lnq-18s", cat: "LINQ & JSON", type: "short",
   q: "Write the call that serializes 'results' to a human-readable JSON string with camelCase property names.",
-  answer: "var options = new JsonSerializerOptions\n{\n    WriteIndented = true,\n    PropertyNamingPolicy = JsonNamingPolicy.CamelCase\n};\nstring json = JsonSerializer.Serialize(results, options);\nFile.WriteAllText(\"Problem_4_Query_Results.json\", json);",
+  answer: "var options = new JsonSerializerOptions\n{\n    WriteIndented = true,\n    PropertyNamingPolicy = JsonNamingPolicy.CamelCase\n};\nstring json = JsonSerializer.Serialize(results, options);\nFile.WriteAllText(\"results.json\", json);",
   explain: "WriteIndented = true pretty-prints with newlines/indentation (the re-exam wanted readable output); PropertyNamingPolicy = JsonNamingPolicy.CamelCase emits camelCase keys. Serialize infers the type from the object, so no <T> needed. When the spec demands EXACT key names, prefer an anonymous type whose member names ARE the keys (or [JsonPropertyName]) over a naming policy.",
 },
 {

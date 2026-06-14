@@ -2,7 +2,7 @@
 /* Query Lab: the three exam presets, the free-text (plain-English) query engine,
    and the populated results-JSON export. Pure core-level tests (no DOM globals)
    so they don't contaminate the UI tests in querylab-core.test.js. */
-const { test, eq, ok, includes } = require("./t.js");
+const { test, eq, ok, includes, notIncludes } = require("./t.js");
 const C = require("../data/querylab-core.js");
 
 /* ---------- shared helpers ---------- */
@@ -88,7 +88,40 @@ test("lighthouses results JSON: missing/explicit-null keeper both serialize as n
   const r = C.resultsJsonFromPreset(C.lighthousesPreset());
   ok(r.ok, "results JSON built");
   const obj = JSON.parse(r.json);
-  ok(obj.unkept.every((l) => l.Keeper === null), "every unkept lighthouse has Keeper === null");
+  ok(obj.unkept.every((l) => l.keeper === null), "every unkept lighthouse has keeper === null");
+});
+
+/* The source JSON uses camelCase keys, so the C# model carries [JsonPropertyName]
+   and System.Text.Json (no naming policy) serializes camelCase. The pre-populated
+   results JSON must key the SAME way so a desk-check matches the generated program
+   byte-for-byte: top-level AND nested keys are camelCase, never PascalCase. */
+test("lighthouses results JSON: camelCase keys (top + nested) match the generated program", () => {
+  const r = C.resultsJsonFromPreset(C.lighthousesPreset());
+  ok(r.ok, "results JSON built");
+  const obj = JSON.parse(r.json);
+  const lh = obj.unkept[0];
+  eq(Object.keys(lh).join(","), "name,region,commissionedYear,flag,keeper,heightMeters,homePort,inspections",
+    "top-level keys are the camelCase jsonName, not PascalCase");
+  notIncludes(JSON.stringify(lh), '"Keeper"', "no PascalCase Keeper key leaks into the output");
+  notIncludes(JSON.stringify(lh), '"Name"', "no PascalCase Name key leaks into the output");
+  eq(Object.keys(lh.inspections[0]).join(","), "year,inspector,passed,rating",
+    "nested object keys stay camelCase too");
+  /* binary-search hits the same typed-object path */
+  const cm = C.resultsJsonFromPreset(C.comicsPreset());
+  ok(cm.ok, "comics results JSON built");
+  const cobj = JSON.parse(cm.json);
+  eq(Object.keys(cobj.releasedBefore2000[0]).join(","), "title,author,releaseYear",
+    "comics filter rows keyed camelCase to match the generated program");
+});
+
+/* The Workshops preset is CSV (no [JsonPropertyName] on the C# model), so its
+   serialized keys stay PascalCase. The fix must NOT camelCase these. */
+test("workshops results JSON: CSV preset keeps PascalCase keys (no jsonName)", () => {
+  const r = C.resultsJsonFromPreset(C.workshopsPreset());
+  ok(r.ok, "results JSON built");
+  const obj = JSON.parse(r.json);
+  eq(Object.keys(obj.sortedBySignups[0]).join(","), "Id,Title,Tag,Signups,Instructor,Room",
+    "CSV preset has no jsonName, so keys remain PascalCase");
 });
 
 /* ============================================================
@@ -202,6 +235,29 @@ test("free-text: a friendly error for an unknown field", () => {
 test("free-text: empty / whitespace query is rejected, never throws", () => {
   const r = C.freeQuery(gpuModel(), "   ", gpuRows(), {});
   ok(!r.ok, "empty query rejected");
+});
+
+/* regression: a most-frequent-per-group query returns an anonymous projection
+   { <group>, <top>, Count }. The print loop must render it as `item`, NOT
+   `item.<rootDisplayField>` (e.g. item.Title) which does not compile (CS1061).
+   Isolated to one query so a legitimate root-element print can't mask it. */
+test("most-frequent-per-group prints the anonymous projection directly, not a root field", () => {
+  const model = presetModel(C.comicsPreset()); // Comic has a Title field -> pickDisplayField would pick Title
+  const row = {
+    shape: "most-frequent-per-group", field: "releaseYear", subField: "author",
+    direction: "desc", name: "topPerYear", label: "most active author per year", print: true,
+  };
+  const program = C.generateProgram(model, [row], { inputFile: "comics.json", namespace: "Comics" });
+  includes(program, "Console.WriteLine(item);", "projection row printed directly");
+  notIncludes(program, "item.Title", "must not access a root field on an anonymous projection");
+});
+
+/* regression: the comics preset used to emit the wrong submission output filename. */
+test("comics preset emits the Problem_4 output filename, not Problem_3", () => {
+  const sub = C.generateSubmissionFromPreset(C.comicsPreset());
+  ok(sub.ok, "comics submission generates");
+  includes(sub.program, "Problem_4_Query_Results.json", "P4 output filename");
+  notIncludes(sub.program, "Problem_3_Query_Results.json", "no stale P3 filename");
 });
 
 test("free-text: code is emitted even when no data rows are supplied", () => {

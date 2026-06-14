@@ -206,8 +206,14 @@
     CORE.addChild(w, root.id, cv);
     const items = CORE.createNode("ItemsControl");
     items.bindings.ItemsSource = "Rectangles";
+    /* size the items host so the in-bounds clamp constants match the visible canvas
+       (instead of the 400x300 default) and rectangles use the whole area. */
+    items.props.Width = 600; items.props.Height = 380;
     items.model = {
       mode: "typed", className: "RectItem", canvasItems: true,
+      /* render each item as a REAL sized rectangle (Width/Height/Fill bound) positioned
+         on the Canvas, not the debug TextBlock list — the exam displays rectangles. */
+      templateShape: "Rectangle",
       fields: [
         { name: "X", type: "double" }, { name: "Y", type: "double" },
         { name: "Width", type: "double" }, { name: "Height", type: "double" },
@@ -215,9 +221,10 @@
       ],
     };
     CORE.addChild(w, cv.id, items);
-    /* Summer P2: the 2-second timer recolors every rectangle with a random brush.
-       DispatcherTimer ticks on the UI thread, so item.Brush mutations are safe. */
-    w.timer = { enabled: true, intervalMs: 2000, mechanism: "dispatcher", action: "recolor-items" };
+    /* Summer P2.3: the 2-second timer MOVES and recolors every rectangle (both, per the
+       exam) and keeps each fully on-canvas. DispatcherTimer ticks on the UI thread, so the
+       item.X / item.Y / item.Brush mutations are all safe. */
+    w.timer = { enabled: true, intervalMs: 2000, mechanism: "dispatcher", action: "recolor-reposition" };
     return w;
   }
 

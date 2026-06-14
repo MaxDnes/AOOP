@@ -425,6 +425,30 @@ test("recipe add-random-item: Random field, palette, clamp math, adds to collect
   notIncludes(viewModel, "// TODO", "add-random-item must have a working body");
 });
 
+/* exam 2.2: when the design has slider-bound size properties (NewWidth/NewHeight),
+   add-random must size new items FROM the sliders, not from a random fallback. */
+test("add-random-item sizes new items from slider-bound NewWidth/NewHeight when present", () => {
+  const tree = C.createNode("Window");
+  const root = C.createNode("DockPanel"); C.addChild(tree, tree.id, root);
+  const bar = C.createNode("StackPanel"); bar.props["DockPanel.Dock"] = "Top"; C.addChild(tree, root.id, bar);
+  const ws = C.createNode("Slider"); ws.bindings.Value = "NewWidth"; C.addChild(tree, bar.id, ws);
+  const hs = C.createNode("Slider"); hs.bindings.Value = "NewHeight"; C.addChild(tree, bar.id, hs);
+  const btn = C.createNode("Button"); btn.bindings.Command = "AddCommand";
+  btn.recipes = { Command: "add-random-item" }; C.addChild(tree, bar.id, btn);
+  const cv = C.createNode("Canvas"); C.addChild(tree, root.id, cv);
+  const ic = C.createNode("ItemsControl"); ic.bindings.ItemsSource = "Rectangles";
+  ic.model = { mode: "typed", className: "RectItem", canvasItems: true,
+    fields: [{ name: "X", type: "double" }, { name: "Y", type: "double" },
+             { name: "Width", type: "double" }, { name: "Height", type: "double" },
+             { name: "Brush", type: "IBrush" }] };
+  C.addChild(tree, cv.id, ic);
+  const { viewModel } = C.generate(tree);
+  includes(viewModel, "int w = (int)NewWidth;", "width from the slider property");
+  includes(viewModel, "int h = (int)NewHeight;", "height from the slider property");
+  notIncludes(viewModel, "int w = _random.Next(20, 120);", "no random size when a slider drives it");
+  includes(viewModel, "X = _random.Next(0, (int)(CanvasWidth - w)),", "still clamped in-bounds");
+});
+
 test("recipe add-random-item on a strings collection picks from _samples", () => {
   const tree = C.createNode("Window");
   const sp = C.createNode("StackPanel"); C.addChild(tree, tree.id, sp);
@@ -509,6 +533,55 @@ test("timer DispatcherTimer: field + Tick wiring + UI-thread comment, recolor bo
   includes(viewModel, "item.Brush = _palette[_random.Next(_palette.Length)];");
   /* toggle recipe wires to Start/Stop */
   includes(viewModel, "if (_timerRunning) StopTimer(); else StartTimer();");
+});
+
+/* the combined "recolor-reposition" action is the exact Summer P2.3 answer: every
+   tick MOVES (X/Y in-bounds) AND recolours each item, in ONE loop, on the UI thread. */
+test("recolor-reposition timer moves AND recolours in one tick, in-bounds, palette + canvas emitted", () => {
+  const tree = rectUITree("timer-toggle", {
+    timer: { enabled: true, intervalMs: 2000, mechanism: "dispatcher", action: "recolor-reposition" },
+  });
+  const { viewModel } = C.generate(tree);
+  includes(viewModel, "private const double CanvasWidth =", "canvas bounds emitted for reposition");
+  includes(viewModel, "private static readonly IBrush[] _palette", "palette emitted for recolor");
+  includes(viewModel, "item.X = _random.Next(0, (int)(CanvasWidth - item.Width));");
+  includes(viewModel, "item.Y = _random.Next(0, (int)(CanvasHeight - item.Height));");
+  includes(viewModel, "item.Brush = _palette[_random.Next(_palette.Length)];");
+});
+test("recolor-reposition is an offered timer action", () => {
+  ok(C.TIMER_ACTIONS.indexOf("recolor-reposition") !== -1, "registered in TIMER_ACTIONS");
+});
+
+/* regression: a reposition-items timer on a model that has NO Width/Height fields
+   (e.g. an Ellipse positioned by X/Y only) must not reference item.Width/item.Height,
+   which do not exist on the model class (CS1061). Fall back to a constant margin. */
+test("reposition-items timer without Width/Height fields uses a constant, not item.Width", () => {
+  const tree = C.createNode("Window");
+  const cv = C.createNode("Canvas"); C.addChild(tree, tree.id, cv);
+  const ic = C.createNode("ItemsControl"); ic.bindings.ItemsSource = "Dots";
+  ic.model = { mode: "typed", className: "Dot", canvasItems: true, templateShape: "Ellipse",
+    fields: [{ name: "X", type: "double" }, { name: "Y", type: "double" }] };
+  C.addChild(tree, cv.id, ic);
+  tree.timer = { enabled: true, intervalMs: 2000, mechanism: "dispatcher", action: "reposition-items" };
+  const { viewModel } = C.generate(tree);
+  notIncludes(viewModel, "item.Width", "must not reference a non-existent item.Width");
+  notIncludes(viewModel, "item.Height", "must not reference a non-existent item.Height");
+  includes(viewModel, "item.X = _random.Next(0, (int)(CanvasWidth - 20));");
+  includes(viewModel, "item.Y = _random.Next(0, (int)(CanvasHeight - 20));");
+});
+/* with Width/Height fields present, the reposition body still uses item.Width/Height */
+test("reposition-items timer with Width/Height fields keeps item.Width/Height", () => {
+  const tree = C.createNode("Window");
+  const cv = C.createNode("Canvas"); C.addChild(tree, tree.id, cv);
+  const ic = C.createNode("ItemsControl"); ic.bindings.ItemsSource = "Rects";
+  ic.model = { mode: "typed", className: "RectItem", canvasItems: true,
+    fields: [{ name: "X", type: "double" }, { name: "Y", type: "double" },
+             { name: "Width", type: "double" }, { name: "Height", type: "double" }] };
+  C.addChild(tree, cv.id, ic);
+  tree.timer = { enabled: true, intervalMs: 2000, mechanism: "dispatcher", action: "reposition-items" };
+  const { viewModel } = C.generate(tree);
+  includes(viewModel, "item.X = _random.Next(0, (int)(CanvasWidth - item.Width));");
+  includes(viewModel, "item.Y = _random.Next(0, (int)(CanvasHeight - item.Height));");
 });
 
 /* -- timer: Task.Delay loop mechanism -- */
@@ -1028,6 +1101,20 @@ test("G2: templateShape Rectangle without a brush field falls back to a default 
   xmlBalanced(axaml);
   includes(axaml, '<Rectangle Width="{Binding Width}" Height="{Binding Height}" Fill="SteelBlue"/>');
   notIncludes(axaml, "Fill=\"{Binding", "no Fill binding without an IBrush field");
+});
+/* regression: a shape item template on a model WITHOUT Width/Height fields must not
+   emit {Binding Width}/{Binding Height} — under compiled bindings that is a hard
+   AVLN2000 build error against a model that has no such property. Use a literal size. */
+test("G2: templateShape without Width/Height fields uses a literal size (no AVLN2000)", () => {
+  const { tree } = canvasItemsControl({
+    mode: "typed", className: "Dot", canvasItems: true, templateShape: "Ellipse",
+    fields: [{ name: "X", type: "double" }, { name: "Y", type: "double" }],
+  });
+  const { axaml } = C.generate(tree);
+  xmlBalanced(axaml);
+  notIncludes(axaml, 'Width="{Binding Width}"', "no Width binding when the model lacks Width");
+  notIncludes(axaml, 'Height="{Binding Height}"', "no Height binding when the model lacks Height");
+  includes(axaml, '<Ellipse Width="40" Height="40" Fill="SteelBlue"/>');
 });
 test("G2: unset templateShape keeps today's debug-list template byte-for-byte", () => {
   /* byte-for-byte: the exact template the existing 'typed model AXAML' test asserts */

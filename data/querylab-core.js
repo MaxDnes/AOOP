@@ -1240,7 +1240,11 @@
       lines.push("{");
       lines.push("    Console.WriteLine($\"{g.Key}: {g.Value}\");");
       lines.push("}");
-    } else if (row.shape === "select-fields") {
+    } else if (row.shape === "select-fields" || row.shape === "most-frequent-per-group") {
+      /* the result element is an anonymous projection (select-fields: the picked
+         fields; most-frequent-per-group: { <group>, <top>, Count }), so it has no
+         root display field. Print the row directly; the anonymous type's ToString
+         renders every member, which compiles and reads fine. */
       lines.push("foreach (var item in " + name + ")");
       lines.push("{");
       lines.push("    Console.WriteLine(item);");
@@ -1284,6 +1288,9 @@
     var overrides = opts.overrides || {};
     rows = Array.isArray(rows) ? rows : [];
     var inputFile = opts.inputFile || "data.json";
+    /* Default name kept for the older exam families that DO submit a results file.
+       In the 2026 (F26) format the JSON is a non-submitted artifact (P4 submits a
+       Models.cs instead), so this filename is a runtime side-output, not a deliverable. */
     var outputFile = opts.outputFile || "Problem_4_Query_Results.json";
     var ns = opts.namespace || "Problem4";
 
@@ -2298,7 +2305,11 @@
     var root = model && model.byName ? model.byName[model.rootClass] : null;
     if (!root) return item;
     var o = {};
-    root.fields.forEach(function (f) { o[f.property] = rqCoerce(model, f, rqVal(item, f), overrides); });
+    /* Key by the field's JSON name (camelCase original) when present so this
+       matches what the generated Program.cs serializes: System.Text.Json has no
+       naming policy set, so it honours each property's [JsonPropertyName] (==
+       f.jsonName) and falls back to the C# property name otherwise. */
+    root.fields.forEach(function (f) { o[f.jsonName || f.property] = rqCoerce(model, f, rqVal(item, f), overrides); });
     return o;
   }
   var ROOT_ROW_SHAPES = { "filter-equals": 1, "filter-contains": 1, "filter-empty-collection": 1, "filter-nested-any": 1, "sort-by": 1, "top-n": 1, "binary-search": 1 };
@@ -2413,7 +2424,7 @@
       name: "Comics (JSON)",
       sample: COMICS_JSON,
       inputFile: "comics.json",
-      outputFile: "Problem_3_Query_Results.json",
+      outputFile: "Problem_4_Query_Results.json",
       namespace: "ComicQueries",
       classNames: { "Item": "Comic" },
       overrides: {},

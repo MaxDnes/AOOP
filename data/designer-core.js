@@ -755,8 +755,16 @@
     const fill = brush
       ? 'Fill="{Binding ' + xmlEsc(brush) + '}"'
       : 'Fill="SteelBlue"';
-    return ind + "<" + model.templateShape + ' Width="{Binding Width}" Height="{Binding Height}" '
-      + fill + "/>";
+    const fields = (model && model.fields) || [];
+    const hasField = function (n) { return fields.some(function (f) { return f.name === n; }); };
+    /* Only bind Width/Height to the model when those fields actually exist. Under
+       compiled bindings (AvaloniaUseCompiledBindingsByDefault), a {Binding Width} to a
+       model that has no Width property is a hard AVLN2000 build error — not a silent
+       no-op. When the field is absent, emit a literal default size so the shape is still
+       visible and the AXAML compiles. */
+    const w = hasField("Width") ? 'Width="{Binding Width}"' : 'Width="40"';
+    const h = hasField("Height") ? 'Height="{Binding Height}"' : 'Height="40"';
+    return ind + "<" + model.templateShape + " " + w + " " + h + " " + fill + "/>";
   }
 
   function itemTemplateAxaml(hostType, model, depth) {
@@ -1169,8 +1177,10 @@
     const wantAddRandom = has("add-random-item");
     const wantService = has("regenerate-from-service");
     const wantCounter = has("counter-increment") || (timer && timer.action === "increment-counter");
-    const timerRecolor = timer && timer.action === "recolor-items";
-    const timerReposition = timer && timer.action === "reposition-items";
+    /* "recolor-reposition" does both, so it must trip BOTH gates (palette + canvas
+       bounds + Random) — the exact Summer P2.3 requirement: move AND recolor every 2s. */
+    const timerRecolor = timer && (timer.action === "recolor-items" || timer.action === "recolor-reposition");
+    const timerReposition = timer && (timer.action === "reposition-items" || timer.action === "recolor-reposition");
 
     const needRandom = wantAddRandom || timerRecolor || timerReposition;
     const needPalette = (wantAddRandom && collHasBrush) || (timerRecolor && collHasBrush);
@@ -1314,9 +1324,15 @@
     }
 
     /* ---- command methods (recipe bodies) ---- */
+    /* if the design has slider-bound size properties (a double VM prop named like
+       NewWidth / RectHeight), the add-random recipe sizes new items FROM them rather
+       than a random fallback — the exam wants "width/height according to the sliders". */
+    const sizeWProp = (observables.find((b) => b.vmType === "double" && /width/i.test(b.name)) || {}).name;
+    const sizeHProp = (observables.find((b) => b.vmType === "double" && /height/i.test(b.name)) || {}).name;
     commands.forEach((b) => {
       blocks.push(commandBlock(b, recipeOf[b.name], {
         coll: primaryColl, sel: primarySel, timer: timer, svc: svc, collModel: collModel,
+        sizeWProp: sizeWProp, sizeHProp: sizeHProp,
       }));
     });
 
@@ -1416,7 +1432,7 @@
       return "        Regenerate();";
     }
     if (recipe === "add-random-item") {
-      return addRandomBody(coll, model);
+      return addRandomBody(coll, model, ctx);
     }
     if (recipe === "timer-toggle" || recipe === "timer-start" || recipe === "timer-stop"
         || recipe === "timer-reset") {
@@ -1437,7 +1453,7 @@
     return "        // TODO: implement";  /* recipe "none" */
   }
 
-  function addRandomBody(coll, model) {
+  function addRandomBody(coll, model, ctx) {
     if (!coll) return "        // TODO: no collection in the design to add to";
     if (!model) {
       /* strings collection */
@@ -1446,8 +1462,11 @@
     const lines = [];
     const hasW = !!fieldByName(model, "Width");
     const hasH = !!fieldByName(model, "Height");
-    if (hasW) lines.push("        int w = _random.Next(20, 120);");
-    if (hasH) lines.push("        int h = _random.Next(20, 120);");
+    /* prefer the slider-bound size property (exam 2.2: "sized by the sliders"); cast the
+       double to int for the clamp math, falling back to a random size when no slider exists. */
+    const wProp = ctx && ctx.sizeWProp, hProp = ctx && ctx.sizeHProp;
+    if (hasW) lines.push(wProp ? "        int w = (int)" + wProp + ";" : "        int w = _random.Next(20, 120);");
+    if (hasH) lines.push(hProp ? "        int h = (int)" + hProp + ";" : "        int h = _random.Next(20, 120);");
     lines.push("        " + coll.name + ".Add(new " + coll.elementType + "");
     lines.push("        {");
     const ctxExpr = {
@@ -1552,12 +1571,23 @@
         + "            item." + brushField + " = _palette[_random.Next(_palette.Length)];\n"
         + "        }";
     }
-    if (timer.action === "reposition-items") {
+    if (timer.action === "reposition-items" || timer.action === "recolor-reposition") {
       if (!coll || !model) return "        // TODO: needs a typed collection with X/Y fields";
+      /* only subtract item.Width/Height when the model actually declares those fields;
+         a shape model that has no Width/Height (e.g. an Ellipse positioned by X/Y only)
+         would otherwise reference a member that does not exist (CS1061). Fall back to a
+         constant margin so the items stay inside the canvas either way. */
+      const wExpr = fieldByName(model, "Width") ? "item.Width" : "20";
+      const hExpr = fieldByName(model, "Height") ? "item.Height" : "20";
+      /* recolor-reposition also assigns a new brush in the SAME loop (one pass, all on
+         the UI thread via the DispatcherTimer) — this is the move-AND-recolour answer. */
+      const brushField = (timer.action === "recolor-reposition" && ctx.collHasBrush)
+        ? (model.fields.find((f) => f.type === "IBrush") || { name: "Brush" }).name : null;
       return "        foreach (var item in " + coll.name + ")\n"
         + "        {\n"
-        + "            item.X = _random.Next(0, (int)(CanvasWidth - item.Width));\n"
-        + "            item.Y = _random.Next(0, (int)(CanvasHeight - item.Height));\n"
+        + "            item.X = _random.Next(0, (int)(CanvasWidth - " + wExpr + "));\n"
+        + "            item.Y = _random.Next(0, (int)(CanvasHeight - " + hExpr + "));\n"
+        + (brushField ? "            item." + brushField + " = _palette[_random.Next(_palette.Length)];\n" : "")
         + "        }";
     }
     return "        // TODO: custom tick action";
@@ -1607,7 +1637,7 @@
     "timer-stop": "timer stop",
     "timer-reset": "timer reset",
   };
-  const TIMER_ACTIONS = ["recolor-items", "reposition-items", "increment-counter", "custom"];
+  const TIMER_ACTIONS = ["recolor-items", "reposition-items", "recolor-reposition", "increment-counter", "custom"];
   const TIMER_MECHANISMS = ["dispatcher", "task"];
   function defaultTimer() {
     return { enabled: true, intervalMs: 2000, mechanism: "dispatcher", action: "recolor-items" };

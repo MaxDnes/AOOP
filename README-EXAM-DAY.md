@@ -132,10 +132,10 @@ point split printed on YOUR exam.
 
 | Problem | Points | Budget | Notes |
 | --- | --- | --- | --- |
-| **P1 - OOP / SOLID written analysis** | 20-25 | **45 min** | Pure writing, no compiler. Do it FIRST while fresh OR last if you build faster than you write. For each principle: present? + where (code line) + general purpose + how it applies here. Use the model `Problem_1_Submission.txt` in the matching Model Solution as a template. |
+| **MCQs - OOP / SOLID / pattern theory** | 20 | **30 min** | 20 multiple-choice questions, 1 pt each, answered in Digital Eksamen (no file). Which OOP pillar / SOLID principle / design pattern a snippet shows or violates. Switch to them whenever you stall on code. Drill them beforehand in the Quiz Exam-Theory set. |
 | **P2 - Avalonia MVVM UI** | 30 | **75 min** | DO NOT touch code-behind (`*.axaml.cs`). Only the files the PDF names. Copy the structure straight from the matching model solution's ViewModel + AXAML. Watch: `ObservableCollection`, `[ObservableProperty]`, `[RelayCommand]`, Canvas `ItemsPanelTemplate`, `Canvas.Left/Top` bindings, `DispatcherTimer` on the UI thread. |
-| **P3 - Unit tests OR async counter** | 15-20 | **45 min** | If tests: copy the xUnit + headless test project from the Starter Kit / model solution; run `dotnet test` early so a green bar is banked. If async counter: `DispatcherTimer` primary; `Task.Delay` + `CancellationTokenSource` alternative is in the model topic. Start/Pause(resume)/Reset, +1 per 100 ms, UI-thread updates. |
-| **P4 - JSON + LINQ console** | 25-35 | **60 min** | `System.Text.Json` with nullable / defaulted model props for the planted missing fields. Run the exact queries, serialize with the EXACT key names from the PDF. Binary search (Summer): sort by Name first, null-safe comparer. INSPECT the output file yourself. |
+| **P3 - Avalonia ASYNC UI (counter)** | 25 | **45 min** | Submit the ViewModel AND its `.axaml`. `DispatcherTimer` primary; `Task.Delay` + `CancellationTokenSource` alternative is in the model topic. Start / Pause(resume) / Reset, +1 per 100 ms, all UI updates on the UI thread. (Older formats instead asked for a unit-test project; check your paper.) |
+| **P4 - JSON/CSV + LINQ console** | 25 | **60 min** | `System.Text.Json` with nullable / defaulted model props for the planted missing fields. If the data is CSV, parse with System only (no CSVHelper). Run the exact queries, serialize with the EXACT key names from the PDF. Binary search: sort by Name first, null-safe comparer. INSPECT the output file yourself. Submit `Problem_4_Program.cs` + `Problem_4_Models.cs`. |
 | **Packaging + verify** | - | **15 min** | Section 4. Do not skip. |
 
 Bank a green build/test as early as possible per problem. A compiling 80% beats a

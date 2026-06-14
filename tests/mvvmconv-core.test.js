@@ -3,7 +3,7 @@
    path and must produce a clean, allowed-libraries-only View + ViewModel from the
    CircleCodeBehind project. The reverse is a study-aid scaffold and only needs to
    stay valid (no duplicate x:Name, MVVM-only bits stripped). */
-const { test, ok, eq } = require("./t.js");
+const { test, ok, eq, xmlBalanced } = require("./t.js");
 const C = require("../data/mvvmconv-core.js");
 
 const ex = C.example();
@@ -91,6 +91,72 @@ test("empty input does not throw and yields no result files", () => {
   ok(r && Array.isArray(r.notes), "returns a shape");
   // view/viewModel are still strings (skeleton), never undefined
   ok(typeof r.view === "string" && typeof r.viewModel === "string", "string outputs");
+});
+
+/* mvvmconv-1: the bound View must explain who sets the DataContext (the provided
+   project, not these two submitted files) and emit a previewer-only Design.DataContext
+   block for designer/asynclab parity — WITHOUT setting a runtime DataContext attribute. */
+test("View emits a previewer-only Design.DataContext + a DataContext note (mvvmconv-1)", () => {
+  ok(/<Design\.DataContext>/.test(view), "Design.DataContext block present");
+  ok(/<vm:MainWindowViewModel\s*\/>/.test(view), "previewer VM instance inside the block");
+  ok(/xmlns:d="http:\/\/schemas\.microsoft\.com\/expression\/blend\/2008"/.test(view), "blend namespace for Design.*");
+  // contract: NEVER a runtime DataContext attribute on the submitted axaml
+  ok(view.indexOf('DataContext="') === -1, "no runtime DataContext attribute set in the view");
+  xmlBalanced(view);
+  ok(fwd.notes.some((n) => /DataContext/.test(n) && /provided project|App\.axaml\.cs/.test(n)),
+     "a note points the student at the provided project for the runtime DataContext");
+});
+
+/* mvvmconv-2: an object-typed ItemsSource (List<Recipe>) must keep its element type
+   instead of being silently forced to List<string> with a string SelectedItem. */
+test("object-typed ItemsSource keeps its element type, not forced to string (mvvmconv-2)", () => {
+  const axaml = '<Window x:Class="X.MainWindow"><StackPanel><ListBox x:Name="RecipeList"></ListBox></StackPanel></Window>';
+  const cb =
+    'public partial class MainWindow : Window {\n' +
+    '  public List<Recipe> recipes = new(){};\n' +
+    '  public MainWindow() {\n' +
+    '    InitializeComponent();\n' +
+    '    RecipeList.ItemsSource = recipes;\n' +
+    '    RecipeList.SelectionChanged += (_, _) => { var x = RecipeList.SelectedItem; };\n' +
+    '  }\n}';
+  const r = C.toMvvm(axaml, cb);
+  ok(/public\s+List<Recipe>\s+Recipes/.test(r.viewModel), "list keeps List<Recipe>, not List<string>");
+  ok(/Recipe\?\s+_selectedRecipe/.test(r.viewModel), "SelectedItem typed Recipe?, not string");
+  ok(r.viewModel.indexOf("List<string>") === -1, "no silently-wrong List<string>");
+  ok(r.todos.some((t) => /Recipe/.test(t)), "unknown element type surfaced as a TODO");
+});
+
+/* mvvmconv-3: a bare ListBox/ComboBox with no SelectedItem usage must NOT get a
+   forced SelectedItem property + binding. */
+test("bare ListBox without SelectedItem usage gets no forced SelectedItem (mvvmconv-3)", () => {
+  const axaml = '<Window x:Class="X.MainWindow"><StackPanel><ListBox x:Name="PlainList"></ListBox></StackPanel></Window>';
+  const cb = 'public partial class MainWindow : Window { public MainWindow() { InitializeComponent(); } }';
+  const r = C.toMvvm(axaml, cb);
+  ok(r.view.indexOf("SelectedItem=") === -1, "no SelectedItem binding when unused");
+  ok(r.viewModel.indexOf("_selectedPlain") === -1, "no SelectedPlain property when unused");
+});
+
+test("SelectedItem IS added when actually used (binding present) (mvvmconv-3)", () => {
+  const axaml = '<Window x:Class="X.MainWindow"><StackPanel><ListBox x:Name="UsedList"></ListBox></StackPanel></Window>';
+  const cb =
+    'public partial class MainWindow : Window { public MainWindow() { InitializeComponent();' +
+    ' UsedList.SelectionChanged += (_, _) => { var x = UsedList.SelectedItem; }; } }';
+  const r = C.toMvvm(axaml, cb);
+  ok(/SelectedItem="\{Binding SelectedUsed\}"/.test(r.view), "SelectedItem bound when used");
+});
+
+/* mvvmconv-4: a ListBox named RecipeList must yield SelectedRecipe, not SelectedRecipeList. */
+test("List/View suffix stripped for list controls so names read well (mvvmconv-4)", () => {
+  const axaml = '<Window x:Class="X.MainWindow"><StackPanel><ListBox x:Name="RecipeList"></ListBox></StackPanel></Window>';
+  const cb =
+    'public partial class MainWindow : Window { public MainWindow() { InitializeComponent();' +
+    ' RecipeList.SelectionChanged += (_, _) => { var x = RecipeList.SelectedItem; }; } }';
+  const r = C.toMvvm(axaml, cb);
+  ok(/_selectedRecipe\b/.test(r.viewModel), "yields SelectedRecipe");
+  ok(r.viewModel.indexOf("SelectedRecipeList") === -1, "not the awkward SelectedRecipeList");
+  // non-list controls keep their existing naming (List/View only stripped for lists)
+  eq(C.propName("RecipeList"), "RecipeList", "plain propName leaves List on (non-list control)");
+  eq(C.propName("RecipeList", true), "Recipe", "list-aware propName strips List");
 });
 
 test("reverse (MVVM -> CodeBehind) stays valid: unique x:Name, vm bits stripped, code-behind shell", () => {

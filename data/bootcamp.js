@@ -497,11 +497,11 @@ var soldMoreThanOnce = sales
     .ToList();
 // Laptop, Smartphone, Shoes`, lang: "csharp", title: "All six drills solved (with expected results)" },
   ], label: "Show drill solutions" },
-  { h: "Writing drill + the mock" },
+  { h: "Theory drill + the mock" },
   { tasks: [
-    "W1 · Write Problem_1_Submission.txt for June's DocumentManager cold (25 min), compare with the model answers",
-    "W2 · Write the five SOLID answers for FamilyMealPlanner cold (25 min), compare",
-    "M1 · FULL TIMED MOCK of the August re-exam: 30 min P1, 75 min P2, 45 min P3, 50 min P4, 20 min building the exact 6-file submission folder",
+    "W1 · MCQ theory: for June's DocumentManager, name each OOP pillar / SOLID principle / pattern present and the planted violation cold (25 min); this is exactly the 20-MCQ skill. Drill the Quiz Exam-Theory set too.",
+    "W2 · Do the same for FamilyMealPlanner's five SOLID principles cold (25 min), compare with the model analysis",
+    "M1 · FULL TIMED MOCK (2026 shape): ~30 min on the 20 MCQs, 75 min P2 UI, 45 min P3 async, 50 min P4 LINQ, 20 min assembling the flat 6-file folder (P2 VM+axaml, P3 VM+axaml, P4 Program+Models)",
     "M2 · Post-mortem: for every point you'd have lost, find the matching topic in this app and re-read it",
   ]},
   { h: "Exam-day checklist (tick these the evening before)" },

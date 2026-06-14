@@ -159,6 +159,7 @@ public partial class MainWindowViewModel : ViewModelBase
 }`, lang: "csharp", title: "MainWindowViewModel.cs" },
 
   { h: "Views/MainWindow.axaml - the 6 binding edits (everything else untouched)" },
+  { tip: "This is a FRAGMENT of the existing MainWindow.axaml, not a whole file. Paste these edits into the starter Window, which already declares its root namespaces (xmlns, xmlns:x, and the vm/models xmlns the bindings need). Do not submit it as a standalone file." },
   { code: String.raw`<DockPanel LastChildFill="True">
     <StackPanel DockPanel.Dock="Left">
         <Button Margin="10" Content="Add Rectangle"

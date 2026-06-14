@@ -421,9 +421,11 @@
 
     /* ---- LSP/ISP: NotImplemented / NotSupported stubs. The fix text is
            context-selected by the implemented interface's member count: a fat
-           interface (3+ members) earns the "split it" advice, but a 1-2 member
+           interface (4+ members) earns the "split it" advice, but a 1-3 member
            interface should be implemented honestly or not claimed at all —
-           splitting a single-method interface is nonsense. ---- */
+           splitting a narrow-role interface is nonsense. The 4+ threshold keeps
+           this consistent with the ISP presence band (1-3 members = a clean
+           single role) and below the standalone fat-interface detector (5+). ---- */
     {
       id: "not-implemented", principle: "LSP", severity: "high",
       title: "Contract member stubbed with NotImplemented/NotSupportedException",
@@ -476,10 +478,11 @@
           " by throwing " + it.exName + ". Any client that calls it through the abstraction crashes, so " + it.cls +
           " is not substitutable for its declared contract — a Liskov Substitution violation.";
         /* context-selected fix: split only makes sense for a genuinely fat
-           interface (3+ members). A 1-2 member interface is a single role; the
-           honest fix is to implement it or stop claiming it. */
+           interface (4+ members). A 1-3 member interface is a narrow role; the
+           honest fix is to implement it or stop claiming it. Threshold matches
+           the ISP presence band (1-3 = clean single role). */
         const ifaceLabel = it.iface ? "The interface " + it.iface : "The implemented interface";
-        if (it.iface && it.ifaceCount >= 3) {
+        if (it.iface && it.ifaceCount >= 4) {
           return head + " The interface " + it.iface + " bundles " + it.ifaceCount +
             " members across more than one role, so this is also an Interface Segregation smell. Fix: split " + it.iface +
             " into smaller role interfaces and let " + it.cls + " implement only the ones it can honour.";

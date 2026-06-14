@@ -442,3 +442,40 @@ test("june: buildAnswer in june mode produces a 1.1-1.5 draft and copySubmission
     global.ANZ.tab("findings");
   }
 });
+
+/* ======================================================================
+   ANALYZER-2 (staleness) — the Analysis Lab intro + empty-state must frame
+   the 2026 reality: SOLID/OOP/patterns are now tested via the 20 MCQs (no
+   written Problem 1), and this lab trains that pattern-spotting on real code.
+   The intro is in render(); the empty-state lives in resultsHTML() (only
+   reachable before a scan), so we pin its current copy against the module
+   source string. Detection logic is unchanged, so the mode chips/headings
+   that the other tests assert must all still be present.
+   ====================================================================== */
+test("analyzer-2: the intro paragraph frames the 2026 MCQ reality, not a written Problem 1", () => {
+  global.localStorage.removeItem("aop-analyzer-state");
+  global.ANZ.loadFixture("summer2025");      // any scanned state; the intro is mode-independent
+  global.ANZ.mode("full");
+  const html = global.ANALYZER.render();
+  includes(html, "20 MCQs", "the intro must state that SOLID/OOP/patterns are now tested via the 20 MCQs");
+  includes(html, "pattern-spotting", "the intro must frame the lab as pattern-spotting practice");
+  /* the stale 'Problem 1 codebase' framing must be gone from the intro prose */
+  notIncludes(html, "Paste the Problem 1 codebase",
+     "the stale written-Problem-1 framing must be removed from the intro");
+  global.ANZ.mode("full");
+  global.ANZ.tab("findings");
+});
+
+test("analyzer-2: the empty-state copy reflects the 2026 MCQ reality", () => {
+  /* resultsHTML()'s empty-state only renders before a scan (lastScan persists
+     across the suite), so pin the source copy directly. */
+  includes(src, "there is no written Problem 1",
+     "the empty-state must state plainly there is no written Problem 1 in 2026");
+  includes(src, "20 MCQs", "the empty-state must point at the 20 MCQs");
+  notIncludes(src, "Paste the exam&#39;s .cs files on the left (one tab per file) and press <b>Scan</b>, or load a real 2025 exam below. Every finding is a lead to verify against the code — confirm it, tick it, build the answer. Green cards are principles you got <b>right</b>; tick them too — the rubric scores presence.",
+     "the stale empty-state copy must be replaced");
+});
+
+test("analyzer-2: the module header no longer calls the lab a 'Problem 1 solver'", () => {
+  notIncludes(src, "Problem 1 solver", "the stale 'Problem 1 solver' header label must be updated");
+});

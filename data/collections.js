@@ -115,8 +115,9 @@ related: ["col-dictionary", "lq-first-single-take"],
 blocks: [
   { list: [
     "`Contains` executes quickly via hash-based lookup.",
-    "Duplicates are NOT stored; duplicate adds are silently ignored.",
+    "Only the element itself is stored once; duplicate adds are silently ignored (no count, no duplicates kept).",
     "No positional access (no indexer).",
+    "Iteration order is NOT guaranteed — never rely on a HashSet preserving insertion or any particular order. Use `SortedSet<T>` if you need ordered iteration.",
     "Fast set operations: Union, Intersection, Difference. `SortedSet<T>` keeps elements ordered.",
     "Slide trivia: the key set of a Dictionary is essentially a HashSet.",
   ]},
@@ -126,7 +127,7 @@ Console.WriteLine(letters.Contains('t'));   // true
 Console.WriteLine(letters.Contains('j'));   // false
 
 foreach (char c in letters) Console.Write(c);
-// Output: "the quickbrownfx"  <- duplicates dropped, first-seen order kept`, lang: "csharp", title: "The slide's dedup demo (memorize the output)" },
+// duplicates dropped; iteration order is NOT guaranteed (do not rely on it)`, lang: "csharp", title: "The slide's dedup demo" },
   { code: String.raw`var a = new HashSet<int> { 1, 2, 3, 4 };
 var b = new HashSet<int> { 3, 4, 5 };
 

@@ -21,8 +21,8 @@ function esc(s) {
 /* the four play cards: exam problem -> the tool that solves it */
 const PLAYS = [
   { tool: "analyzer", label: "Analysis Lab", icon: "⌖", color: "#f07178",
-    p: "P1", title: "Written OOP / SOLID analysis",
-    desc: "Paste the Problem 1 console project, scan for violations, build the full-answer draft, copy it out." },
+    p: "MCQ", title: "OOP / SOLID / pattern theory",
+    desc: "The 20 MCQs ask which principle or pattern a snippet shows. Drill the Quiz Exam-Theory set; use Analysis Lab to practise spotting violations in real code." },
   { tool: "designer", label: "Visual Designer", icon: "⌗", color: "#7fd962",
     p: "P2", title: "Avalonia MVVM UI",
     desc: "Load or drag the closest preset, adapt it, then download the two graded files for Problem 2." },
@@ -108,10 +108,11 @@ function render() {
   h += '<h1 class="topic-title">How to run the exam</h1>';
 
   /* 1. hero: one line mapping the exam to the tools, then the four plays */
-  h += '<p class="bp gd-hero">Four problems, four tools. Problem 1 written analysis goes through the ' +
-    'Analysis Lab. Problem 2 Avalonia UI is the Visual Designer. Problem 3 async is the Async Composer, ' +
-    'with Test Lab as your self-check. Problem 4 JSON and LINQ is the Query Lab. Click a card to jump ' +
-    'straight there.</p>';
+  h += '<p class="bp gd-hero">Three coding tasks plus 20 multiple-choice questions, one 4-hour sitting you ' +
+    'can switch between freely. The 20 MCQs (1 point each, 20 total) test OOP, SOLID and design-pattern ' +
+    'theory: drill them in the Quiz and sharpen pattern-spotting in the Analysis Lab. Problem 2 Avalonia UI ' +
+    'is the Visual Designer. Problem 3 async is the Async Composer, with Test Lab as your self-check. ' +
+    'Problem 4 JSON and LINQ is the Query Lab. Click a card to jump straight there.</p>';
   h += '<div class="homegrid gd-plays">';
   PLAYS.forEach(function (p) { h += toolCard(p); });
   h += "</div>";
@@ -143,7 +144,8 @@ function render() {
       'already the verified ReExam counter.</p>' +
     "</div>" +
     "</div>" +
-    '<p class="bp gd-fam-note">The F26 paper is most likely a variation of one of these two. Pick the ' +
+    '<p class="bp gd-fam-note">The F26 paper is 20 MCQs plus three coding tasks. The family tell only ' +
+    'governs the coding shapes (P2 UI, P3 async, P4 LINQ); the MCQs are theory either way. Pick the ' +
     'family, open the matching model solution folder, and adapt from there.</p>');
 
   /* the two-button rule, stated once, referenced per play */
@@ -164,16 +166,15 @@ function render() {
   /* 4. the four plays, one block each */
   let plays = "";
   plays += play({
-    p: "P1", title: "Written OOP / SOLID analysis", budget: "45 min",
+    p: "MCQ", title: "20 multiple-choice questions", budget: "30 min",
     tool: "analyzer", toolLabel: "Analysis Lab", color: "#f07178",
     steps: [
-      "Paste the whole Problem 1 console project into the Analysis Lab and scan it.",
-      "Read the findings, each with its code location and the SOLID principle it touches.",
-      "Pick the mode chips: full for everything, violations for what is broken, implementations for what is already honored, June rubric for the June paper's 1.1 to 1.5 layout. Answer presence first.",
-      "Tick the findings you will use, then build the draft. In June rubric mode use the Copy as Problem_1_Submission.txt button to copy it out with the 1.1 to 1.5 headings.",
+      "20 MCQs, 1 point each, 20 of the 100 total. Each shows a code snippet and asks which OOP pillar, SOLID principle or design pattern it demonstrates, or which one it violates.",
+      "Drill them in the Quiz: pick the Exam Theory category for the 20 Problem-1-style questions, or run the full exam simulation. Do this tonight and tomorrow, not just on the day.",
+      "When a snippet is real console code, paste it into the Analysis Lab to see each finding with its code location and principle, so you recognise the pattern fast. The mode chips (full, violations, implementations, June rubric) let you answer presence first.",
+      "Answer the MCQs directly in Digital Eksamen; you can switch between the MCQs and the three coding tasks at any time.",
     ],
-    deliver: "The draft is the deliverable. Problem 1 has no submission file in the flat set, so there is " +
-      "nothing to download here. Paste the draft into the channel the exam paper names.",
+    deliver: "The MCQs are answered in Digital Eksamen. There is no Problem 1 file in the flat six-file set, so there is nothing to download here.",
   });
   plays += play({
     p: "P2", title: "Avalonia MVVM UI", budget: "75 min",

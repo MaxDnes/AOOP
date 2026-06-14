@@ -361,6 +361,16 @@ internal class Program
             "Problem_4_Query_Results.json",
             JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
     }
+}
+
+// Model lives in the SAME file (the ReExam submits only Problem_4_Program.cs).
+// Every field is nullable so a planted null / missing JSON field deserializes
+// instead of throwing — the null-safe queries above then handle it.
+public class Recipe
+{
+    public string? Name { get; set; }
+    public List<string>? Ingredients { get; set; }
+    public List<string>? DietaryTags { get; set; }
 }`, lang: "csharp", title: "Problem_4_Program.cs — complete solution" },
   { h: "Verified results on the provided recipes.json (15 recipes, avg 3.33)" },
   { table: { head: ["Query", "Count", "Members"], rows: [

@@ -1,5 +1,8 @@
 /* ============================================================
-   ANALYSIS LAB · UI for the OOP/SOLID scanner (Problem 1 solver)
+   ANALYSIS LAB · UI for the OOP/SOLID scanner.
+   In 2026 SOLID/OOP/patterns are tested via the 20 MCQs (no
+   written Problem 1), so this lab now trains pattern-spotting on
+   real console code rather than producing a Problem 1 submission.
    window.ANALYZER = { render, init, findingCard, presenceCard, templateCard }
    All event handlers live on window.ANZ.
    Pure string rendering; DOM access happens only inside functions
@@ -401,7 +404,7 @@ function presenceCard(f) {
 
 function resultsHTML() {
   if (!lastScan) {
-    return modeChipsHTML() + '<div class="anz-empty">Paste the exam&#39;s .cs files on the left (one tab per file) and press <b>Scan</b>, or load a real 2025 exam below. Every finding is a lead to verify against the code — confirm it, tick it, build the answer. Green cards are principles you got <b>right</b>; tick them too — the rubric scores presence.</div>' + huntHTML();
+    return modeChipsHTML() + '<div class="anz-empty">In 2026, SOLID/OOP/patterns are graded through the 20 MCQs (there is no written Problem 1), so this lab is here to train that pattern-spotting on real code. Paste any .cs files on the left (one tab per file) and press <b>Scan</b>, or load a real 2025 exam below. Every finding is a lead to verify against the code — name the smell and the principle it breaks, exactly what the MCQs ask. Green cards are principles the code got <b>right</b>.</div>' + huntHTML();
   }
   const mode = curMode();
   let h = modeChipsHTML() + coverageHTML();
@@ -594,7 +597,7 @@ function render() {
   let h = '<div class="content-inner content-wide">';
   h += '<div class="crumb"><b>ANALYSIS LAB</b></div>';
   h += '<h1 class="topic-title">Analysis Lab</h1>';
-  h += '<p class="bp">Paste the Problem 1 codebase (or load a real 2025 exam), press <b>Scan</b>, and confirm the OOP/SOLID findings. Green cards are principles the code applies <b>well</b> — the rubric scores presence, so tick those too. Then switch to <b>Draft</b> for a rubric-shaped, five-principle written answer.</p>';
+  h += '<p class="bp">In the 2026 exam, SOLID, OOP and design patterns are tested through the <b>20 MCQs</b>, not a written Problem 1 — so this lab is now pattern-spotting practice. Paste any real console codebase (or load a real 2025 exam), press <b>Scan</b>, and confirm the OOP/SOLID findings: naming the smell and the principle it breaks is exactly the muscle the MCQs reward. Green cards are principles the code applies <b>well</b>. The <b>Draft</b> tab still assembles a rubric-shaped written answer if you want to rehearse the full analysis.</p>';
   h += '<div class="anz">';
   h += '<div class="anz-left">';
   h += '<div class="anz-tabs" id="anz-tabs">' + tabsHTML() + "</div>";

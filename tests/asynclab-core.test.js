@@ -224,6 +224,32 @@ test("progress pattern: 0..100, IsRunning flag, completes and stops at 100", () 
   parenBalanced(code);
 });
 
+/* regression (asynclab-2): the progress worker self-Stops at 100, which clears
+   IsRunning. Without a completion guard a Start after that would re-arm the worker
+   and add one more tick before re-clamping to 100. Start() must bail out when
+   already complete, on both the timer and the task mechanism. */
+test("progress pattern: Start guards against restarting past 100 (timer + task)", () => {
+  ["timer", "task"].forEach((mech) => {
+    const code = vmCode({ pattern: "progress", mechanism: mech });
+    /* the completion guard is present... */
+    includes(code, "if (Progress >= 100) return;", mech + ": Start must bail when already complete");
+    /* ...and it sits INSIDE Start() (before the worker is re-armed). Slice the Start
+       body and assert the guard appears there, ahead of the start/resume line. */
+    const start = code.indexOf("private void Start()");
+    ok(start !== -1, mech + ": Start() method present");
+    const body = code.slice(start, code.indexOf("private void Stop()", start));
+    includes(body, "if (Progress >= 100) return;", mech + ": guard lives in Start()");
+    const armLine = mech === "timer" ? "_timer.Start();" : "_ = RunAsync(";
+    ok(body.indexOf("if (Progress >= 100) return;") < body.indexOf(armLine),
+      mech + ": completion guard must precede re-arming the worker");
+    braceBalanced(code);
+    parenBalanced(code);
+  });
+  /* the counter/list patterns must NOT pick up the progress-only guard */
+  notIncludes(vmCode({ pattern: "counter" }), "if (Progress >= 100) return;");
+  notIncludes(vmCode({ pattern: "list" }), "if (Progress >= 100) return;");
+});
+
 /* ============ list pattern ============ */
 test("list pattern: ObservableCollection mutated each tick + ObjectModel using", () => {
   const code = vmCode({ pattern: "list" });

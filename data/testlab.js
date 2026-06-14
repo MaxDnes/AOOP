@@ -577,7 +577,7 @@ function render() {
   let h = '<div class="content-inner content-wide">';
   h += '<div class="crumb"><b>TEST LAB</b></div>';
   h += '<h1 class="topic-title">Test Lab</h1>';
-  h += '<p class="bp">Paste the Problem 3 class or ViewModel and generate ready-to-paste xUnit files. The default <b>Per-function P/N/E</b> mode lists every method and command it finds: tick the ones you care about and it emits a labeled <b>Positive / Negative / Edge</b> trio for each. The other modes (plain unit tests, ViewModel command tests, headless Avalonia scaffold, timing-tolerant async patterns, the exact-version csproj and an offline runbook) stay available. Real asserts are filled in where derivable; everything else is a marked TODO.</p>';
+  h += '<p class="bp">Paste a P2/P3 class or ViewModel to self-check your logic: generate ready-to-paste xUnit files (unit testing is no longer a submitted file in 2026, but it is still MCQ material and a fast self-check of your own code). The default <b>Per-function P/N/E</b> mode lists every method and command it finds: tick the ones you care about and it emits a labeled <b>Positive / Negative / Edge</b> trio for each. The other modes (plain unit tests, ViewModel command tests, headless Avalonia scaffold, timing-tolerant async patterns, the exact-version csproj and an offline runbook) stay available. Real asserts are filled in where derivable; everything else is a marked TODO.</p>';
   h += '<p class="bp">New to writing tests? Load a <b>worked example</b> below: it fills the editor with real C#, generates its tests, and explains line by line how each method turned into a Positive / Negative / Edge case.</p>';
   h += '<div class="tl-gallery-wrap" id="tl-gallery-wrap">' + galleryHTML() + "</div>";
   h += '<div class="tl">';

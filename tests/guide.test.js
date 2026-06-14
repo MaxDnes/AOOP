@@ -154,10 +154,10 @@ test("crumb label is plain, not wrapped in a bold tag", () => {
   notIncludes(html, "<b>EXAM GUIDE", "crumb must not use a <b> tag");
 });
 
-/* ============ time budgets ============ */
-test("time budgets 45/75/45/60/15 all present", () => {
+/* ============ time budgets (2026: MCQs replace the written P1) ============ */
+test("time budgets 30/75/45/60/15 all present", () => {
   const html = GUIDE.render();
-  ["45 min", "75 min", "45 min", "60 min", "15 min"].forEach((b) => {
+  ["30 min", "75 min", "45 min", "60 min", "15 min"].forEach((b) => {
     includes(html, b, "time budget " + b + " missing");
   });
 });
@@ -186,10 +186,10 @@ test("hero maps each problem to its tool and Test Lab is the P3 self-check", () 
   includes(html, "self-check", "Test Lab framed as the self-check");
 });
 
-/* ============ spec 18: CSV mode in the P4 play, June rubric in the P1 play ============
-   The integration agent threads two spec-18 capabilities into the guide prose:
-   the Query Lab CSV fallback (P4) and the Analysis Lab June rubric draft plus its
-   Copy as Problem_1_Submission.txt button (P1). Pin both so the prose cannot drift. */
+/* ============ CSV mode in the P4 play; the MCQ play (2026) ============
+   The P4 play threads the Query Lab CSV fallback. The first play is the 20-MCQ
+   theory block (the written Problem 1 no longer exists in the 2026 format); it
+   still points at the Analysis Lab June-rubric practice mode. Pin both. */
 test("P4 play mentions Query Lab CSV mode and the exam-legal System-only parsing", () => {
   const html = GUIDE.render();
   includes(html, "CSV mode", "P4 play names CSV mode");
@@ -198,10 +198,13 @@ test("P4 play mentions Query Lab CSV mode and the exam-legal System-only parsing
   includes(html, "no CSVHelper", "P4 play notes CSVHelper is not used");
 });
 
-test("P1 play mentions the June rubric mode and the Copy as Problem_1_Submission.txt button", () => {
+test("the MCQ play frames the 20 multiple-choice questions and the Analysis Lab practice mode", () => {
   const html = GUIDE.render();
-  includes(html, "June rubric", "P1 play names the June rubric mode");
-  includes(html, "Copy as Problem_1_Submission.txt", "P1 play names the submission copy button");
+  includes(html, "20 multiple-choice questions", "the MCQ play names the 20 MCQs");
+  includes(html, "Exam Theory", "the MCQ play points at the Quiz Exam Theory drill");
+  includes(html, "June rubric", "the MCQ play still names the Analysis Lab June rubric practice mode");
+  /* the written Problem 1 / its submission file no longer exist in 2026 */
+  notIncludes(html, "Problem_1_Submission.txt", "the guide must not reference a removed P1 submission file");
 });
 
 /* ============ spec 19: sim-gap capabilities threaded into the P3 + P4 plays ============

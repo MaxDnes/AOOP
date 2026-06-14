@@ -106,11 +106,22 @@ Designer invariants worth knowing before editing it:
 
 ## Exam submission format (the real deliverable)
 
-A flat folder of exactly 6 files with the professor's exact names, no `bin`/`obj`, no subfolders:
-`Problem_1_Submission.txt`, `Problem_2_MainWindow.axaml`, `Problem_2_MainWindowViewModel.cs`,
-`Problem_3_MainWindowViewModel.cs`, `Problem_4_Program.cs`, `Problem_4_Models.cs`. This is the real
-exam's structure (from the professor portal), which differs from the practice PDF's 4-file layout;
-do not "fix" tool naming to match the PDF. Only these usings are allowed in submitted code:
+A flat folder of exactly 6 files with the professor's exact names, no `bin`/`obj`, no subfolders.
+The exact file set depends on the exam family; the tools can emit every variant below, so match the
+names on the day's paper. The CURRENT (F26 / 2026) format is the priority target:
+
+- 2026 (20 MCQs + 3 coding tasks): `Problem_2_MainWindowViewModel.cs`, `Problem_2_MainWindow.axaml`,
+  `Problem_3_MainWindowViewModel.cs`, `Problem_3_MainWindow.axaml`, `Problem_4_Program.cs`,
+  `Problem_4_Models.cs`. The old written Problem 1 (OOP/SOLID analysis) is now the 20 MCQs, so there is
+  NO `Problem_1_Submission.txt`; P3 (async UI) now ALSO submits its `.axaml`; P4 submits a `Models.cs`
+  (not a `Query_Results.json`).
+- Aug 2025 ReExam: `Problem_1_Submission.txt`, `Problem_2_MainWindow.axaml`,
+  `Problem_2_MainWindowViewModel.cs`, `Problem_3_MainWindowViewModel.cs` (VM only, no axaml),
+  `Problem_4_Program.cs`, `Problem_4_Query_Results.json`.
+- June 2025: a Problem-1 analysis text plus the P2 UI files, a P3 unit-test project, and a P4 console.
+
+Do not "fix" tool naming to match any single PDF; the multi-format support is intentional. Only these
+usings are allowed in submitted code:
 `System*`, `Avalonia*`, `CommunityToolkit.Mvvm*`. The "Download submission files" actions emit plain
 text blobs and must NOT depend on PROJZIP (they work even when the zip writer is absent); the
 "Export project (.zip)" actions are the only PROJZIP consumers.

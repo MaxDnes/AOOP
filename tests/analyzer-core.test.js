@@ -715,7 +715,36 @@ namespace Doc
   const f = A.scan([{ name: "Two.cs", text: two }]).findings;
   const ni = byRule(f, "not-implemented")[0];
   ok(ni, "the NotSupportedException stub must fire");
-  notIncludes(ni.paragraph, "split", "2 members is below the 3+ split threshold");
+  notIncludes(ni.paragraph, "split", "2 members is below the 4+ split threshold");
+});
+
+test("analyzer-1: throw-stub on a 3-member interface gives NO split advice (boundary)", () => {
+  /* the ISP-contradiction fix: a 3-member interface is a clean single role
+     (matching the ISP presence band's 1-3 band and the standalone fat-interface
+     detector's 5+ threshold), so the stub advice must NOT call it fat. Pins the
+     >=3 -> >=4 boundary move so the 'split it' / ISP-smell language never fires
+     at exactly 3 members again. */
+  const three = `
+namespace Doc
+{
+    public interface IThreeRole { void Open(); void Close(); void Print(); }
+    public class WebDoc : IThreeRole
+    {
+        public void Open() {}
+        public void Close() {}
+        public void Print() { throw new NotImplementedException(); }
+    }
+}`;
+  const f = A.scan([{ name: "Three.cs", text: three }]).findings;
+  const ni = byRule(f, "not-implemented")[0];
+  ok(ni, "the NotImplementedException stub must fire");
+  notIncludes(ni.paragraph, "split", "3 members is below the 4+ split threshold — a clean single role");
+  notIncludes(ni.paragraph, "Interface Segregation",
+     "a 3-member interface is not a fat-interface ISP smell");
+  includes(ni.paragraph, "implement the contract honestly",
+     "the fix must recommend honouring or dropping the narrow-role contract instead");
+  /* and the standalone fat-interface detector must agree: 3 members is not fat */
+  ok(!hasRule(f, "fat-interface"), "the standalone fat-interface detector must not fire at 3 members either");
 });
 
 test("spec15: ENC findings on both public fields unchanged (regression guard)", () => {

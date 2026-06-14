@@ -145,6 +145,9 @@
         resetExtra: ["Progress = 0;"],
         zeroExpr: "Progress = 0;",
         comment: "// progress worker: advances " + cfg.step + " per tick, completes and stops at 100",
+        /* guard against re-starting a worker that already finished: a Start after
+           the self-Stop at 100 would otherwise add one more tick before re-clamping. */
+        startGuard: "if (Progress >= 100) return;   // already complete: Reset before re-running",
       };
     }
     if (cfg.pattern === "list") {
@@ -294,6 +297,7 @@
         var b = [];
         if (cfg.canExecute || needRunning) b.push(pad + "if (" + RUNNING_PROP + ") return;   // Start is idempotent while running");
         else b.push(pad + "if (_timer.IsEnabled) return;   // Start is idempotent while running");
+        if (info.startGuard) b.push(pad + info.startGuard);
         b.push(pad + "_timer.Start();                 // begin / resume from the preserved value");
         setRun("true", pad).forEach(function (l) { b.push(l); });
         return b;
@@ -335,6 +339,7 @@
     emitCommands(L, cfg, needRunning, {
       startBody: function (pad) {
         var b = [pad + "if (_cts is not null) return;    // already running -> Start is idempotent"];
+        if (info.startGuard) b.push(pad + info.startGuard);
         b.push(pad + "_cts = new CancellationTokenSource();");
         setRun("true", pad).forEach(function (l) { b.push(l); });
         b.push(pad + "_ = RunAsync(_cts.Token);        // fire-and-forget the periodic loop");
