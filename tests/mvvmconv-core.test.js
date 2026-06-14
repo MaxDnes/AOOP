@@ -159,6 +159,61 @@ test("List/View suffix stripped for list controls so names read well (mvvmconv-4
   eq(C.propName("RecipeList", true), "Recipe", "list-aware propName strips List");
 });
 
+/* mvvmconv-5: the initial selection must come from the control's real SelectedIndex,
+   not always the first list item — converting must preserve which item starts selected. */
+test("ComboBox initial selection follows SelectedIndex, not always item 0 (mvvmconv-5)", () => {
+  const axaml =
+    '<Window x:Class="X.MainWindow"><StackPanel>' +
+    '<Ellipse x:Name="Circle" Fill="green"></Ellipse>' +
+    '<ComboBox SelectedIndex="2" x:Name="ColorSelector"></ComboBox>' +
+    '</StackPanel></Window>';
+  const cb =
+    'public partial class MainWindow : Window {\n' +
+    '  public List<string> colors = new(){"Green", "Red", "Blue", "Purple", "Black"};\n' +
+    '  public MainWindow() {\n' +
+    '    InitializeComponent();\n' +
+    '    ColorSelector.ItemsSource = colors;\n' +
+    '    ColorSelector.SelectionChanged += (_, _) => { Circle.Fill = Brush.Parse(ColorSelector.SelectedItem.ToString()); };\n' +
+    '  }\n}';
+  const r = C.toMvvm(axaml, cb);
+  ok(/_selectedColor\s*=\s*"Blue"/.test(r.viewModel), "SelectedColor defaults to index 2 (Blue), not Green");
+  ok(/IBrush\s+_circleFill\s*=\s*Brush\.Parse\("Blue"\)/.test(r.viewModel), "derived brush starts on Blue too");
+  ok(r.view.indexOf("SelectedIndex") === -1, "SelectedIndex dropped once SelectedItem is bound");
+});
+
+/* mvvmconv-6: a list-only combo (ItemsSource but no SelectedItem usage) must KEEP its
+   SelectedIndex so the initial selection isn't silently lost on conversion. */
+test("list-only ComboBox keeps SelectedIndex (initial selection preserved) (mvvmconv-6)", () => {
+  const axaml =
+    '<Window x:Class="X.MainWindow"><StackPanel>' +
+    '<ComboBox SelectedIndex="1" x:Name="Picker"></ComboBox>' +
+    '</StackPanel></Window>';
+  const cb =
+    'public partial class MainWindow : Window {\n' +
+    '  public List<string> options = new(){"A", "B", "C"};\n' +
+    '  public MainWindow() {\n' +
+    '    InitializeComponent();\n' +
+    '    Picker.ItemsSource = options;\n' +
+    '  }\n}';
+  const r = C.toMvvm(axaml, cb);
+  ok(/ItemsSource="\{Binding Options\}"/.test(r.view), "ItemsSource is bound");
+  ok(/SelectedIndex="1"/.test(r.view), "SelectedIndex kept (no SelectedItem binding to replace it)");
+  ok(r.view.indexOf("SelectedItem=") === -1, "no forced SelectedItem binding");
+  ok(r.viewModel.indexOf("_selectedPicker") === -1, "no SelectedPicker property");
+});
+
+/* mvvmconv-7: a Slider with no Value but a Minimum must default the property to
+   Minimum — a real Slider clamps up to Minimum, so 0 would desync VM and control. */
+test("Slider with no Value defaults the property to Minimum, not 0 (mvvmconv-7)", () => {
+  const axaml =
+    '<Window x:Class="X.MainWindow"><StackPanel>' +
+    '<Slider x:Name="SizeSlider" Minimum="50" Maximum="500"></Slider>' +
+    '</StackPanel></Window>';
+  const cb = 'public partial class MainWindow : Window { public MainWindow() { InitializeComponent(); } }';
+  const r = C.toMvvm(axaml, cb);
+  ok(/private\s+double\s+_size\s*=\s*50;/.test(r.viewModel), "Size defaults to Minimum (50), not 0");
+});
+
 test("reverse (MVVM -> CodeBehind) stays valid: unique x:Name, vm bits stripped, code-behind shell", () => {
   const rev = C.toCodeBehind(fwd.view, fwd.viewModel);
   ok(/InitializeComponent\(\);/.test(rev.codeBehind), "code-behind calls InitializeComponent");

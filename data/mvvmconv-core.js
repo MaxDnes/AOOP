@@ -177,6 +177,7 @@ function toMvvm(axaml, codeBehind, opts) {
   var bind = {};           // controlName -> { prop: bindingExpr }  (view rewrites)
   var removeOnControl = {};// controlName -> [attr keys to drop]
   var addedProps = {};     // field name -> true (dedupe)
+  var selInitial = {};     // selProp -> initial value literal (from the real SelectedIndex)
 
   function ensureProp(field, type, init) {
     if (addedProps[field]) return;
@@ -200,7 +201,11 @@ function toMvvm(axaml, codeBehind, opts) {
     if (t.tag === "Slider" || valueUsed) {
       var p = propName(nm);
       var init = attrVal(t.attrs, "Value");
-      ensureProp(camelField(p), "double", init != null && init !== "" ? init : "0");
+      // no explicit Value: a Slider clamps up to its Minimum, so default the
+      // property to Minimum (not 0) — otherwise the VM and the control disagree
+      // on the starting value. Read it from the axaml; never guess.
+      if (init == null || init === "") init = attrVal(t.attrs, "Minimum") || "0";
+      ensureProp(camelField(p), "double", init);
       sliderProp[nm] = p;
       setBind(nm, "Value", "{Binding " + p + "}");
       notes.push("Slider " + nm + " -> bound to double property " + p + ".");
@@ -221,6 +226,12 @@ function toMvvm(axaml, codeBehind, opts) {
     if (!isList && !hasItems && !selUsed) return;
 
     var base = propName(nm, isList);
+    // the control's initial selection, read straight from the axaml (default 0).
+    // We use it so the converted view starts on EXACTLY the same item — never the
+    // first item unless the control actually started there.
+    var selIdxRaw = attrVal(t.attrs, "SelectedIndex");
+    var selIdx = parseInt(selIdxRaw, 10);
+    if (isNaN(selIdx) || selIdx < 0) selIdx = 0;
     var first = "";
     var listName;
     var elemType = "string";
@@ -230,7 +241,7 @@ function toMvvm(axaml, codeBehind, opts) {
       var lf = listFields[field] || { elem: "string", items: [] };
       var items = lf.items;
       elemType = lf.elem || "string";
-      first = items[0] || "";
+      first = items[selIdx] != null ? items[selIdx] : (items[0] || "");
       lists.push({ name: listName, type: "List<" + elemType + ">", items: items });
       setBind(nm, "ItemsSource", "{Binding " + listName + "}");
     }
@@ -239,6 +250,7 @@ function toMvvm(axaml, codeBehind, opts) {
       var selProp = "Selected" + base;
       if (elemType === "string") {
         ensureProp(camelField(selProp), "string", JSON.stringify(first));
+        selInitial[selProp] = first;
       } else {
         // unknown element type: don't silently emit a wrong type — flag it.
         ensureProp(camelField(selProp), elemType + "?", "null");
@@ -247,10 +259,13 @@ function toMvvm(axaml, codeBehind, opts) {
       }
       comboSel[nm] = selProp;
       setBind(nm, "SelectedItem", "{Binding " + selProp + "}");
+      // SelectedItem now drives the selection, so a literal SelectedIndex would
+      // fight the binding — drop it (its value is baked into the property default).
+      dropAttr(nm, "SelectedIndex");
     }
-    dropAttr(nm, "SelectedIndex");
     notes.push((t.tag || "ComboBox") + " " + nm + " -> ItemsSource " + (listName || "(list)") +
-               (selUsed ? " + SelectedItem Selected" + base : "") + ".");
+               (selUsed ? " + SelectedItem Selected" + base
+                        : (selIdxRaw != null ? " (initial SelectedIndex kept)" : "")) + ".");
   });
 
   // 3) walk handlers
@@ -314,7 +329,10 @@ function toMvvm(axaml, codeBehind, opts) {
 
   // helper used above: initial value for a brush bridge = first option of its combo
   function comboFirst(selProp) {
-    // selProp is "Selected<Base>"; find the matching combo's list first item
+    // prefer the exact initial selection we already resolved from SelectedIndex,
+    // so the derived brush starts on the same colour the control starts on.
+    if (selInitial[selProp] != null && selInitial[selProp] !== "") return selInitial[selProp];
+    // selProp is "Selected<Base>"; fall back to the matching combo's first item
     for (var nm in comboSel) {
       if (comboSel[nm] === selProp) {
         var field = itemsSources[nm];
